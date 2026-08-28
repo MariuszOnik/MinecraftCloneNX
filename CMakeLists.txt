@@ -77,7 +77,10 @@ add_library(voxelgame_world STATIC
 )
 target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-add_library(voxelgame_render STATIC src/render/ChunkRenderMesh.cpp)
+add_library(voxelgame_render STATIC
+    src/render/BlockAtlas.cpp
+    src/render/ChunkRenderMesh.cpp
+)
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(voxelgame_render PUBLIC voxelgame_world PRIVATE raylib)
 

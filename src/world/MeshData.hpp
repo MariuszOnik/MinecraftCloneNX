@@ -9,6 +9,7 @@ namespace voxelgame {
 struct MeshData {
     std::vector<float> vertices;
     std::vector<float> normals;
+    std::vector<float> uvs;
     std::vector<std::uint8_t> colors;
     std::vector<std::uint16_t> indices;
     std::size_t quadCount = 0;

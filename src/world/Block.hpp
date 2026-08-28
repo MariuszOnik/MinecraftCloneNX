@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string_view>
 
@@ -20,11 +21,16 @@ struct BlockColor {
     std::uint8_t alpha;
 };
 
+// Atlas tile index per cube face, ordered to match the mesher's face table:
+// +X, -X, +Y, -Y, +Z, -Z.
+using BlockFaceTiles = std::array<std::uint8_t, 6>;
+
 struct BlockDefinition {
     std::string_view name;
     bool solid;
     RenderLayer layer;
     BlockColor color;
+    BlockFaceTiles faceTiles;
 };
 
 namespace blocks {
@@ -36,6 +42,7 @@ inline constexpr BlockId Count = 4;
 }  // namespace blocks
 
 [[nodiscard]] const BlockDefinition& GetBlockDefinition(BlockId block) noexcept;
+[[nodiscard]] std::uint8_t GetBlockFaceTile(BlockId block, int faceIndex) noexcept;
 [[nodiscard]] bool IsKnownBlock(BlockId block) noexcept;
 [[nodiscard]] bool IsSolidBlock(BlockId block) noexcept;
 [[nodiscard]] bool IsOccludingBlock(BlockId block) noexcept;

@@ -1,6 +1,7 @@
 #include "world/ChunkMesher.hpp"
 
 #include "world/Block.hpp"
+#include "world/BlockAtlasLayout.hpp"
 
 #include <array>
 #include <cstdint>
@@ -26,24 +27,41 @@ constexpr std::array<FaceDefinition, 6> faces{{
     {0, 0, -1, {{{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}}, {0, 0, -1}, 0.64F},
 }};
 
-std::uint8_t ShadeChannel(const std::uint8_t channel, const float shade) noexcept {
-    return static_cast<std::uint8_t>(static_cast<float>(channel) * shade);
+// Which tile corner each of the four face vertices maps to: (left/right, top/bottom).
+constexpr std::array<std::array<int, 2>, 4> cornerUv{{
+    {{0, 0}},
+    {{0, 1}},
+    {{1, 1}},
+    {{1, 0}},
+}};
+
+static_assert(atlas::TileCount >= 1, "atlas must define at least one tile");
+
+std::uint8_t ShadeChannel(const float shade) noexcept {
+    return static_cast<std::uint8_t>(255.0F * shade);
 }
 
 void AppendFace(MeshData& mesh, const FaceDefinition& face, const int x, const int y,
-                const int z, const BlockColor color) {
+                const int z, const std::uint8_t tile) {
     const auto firstVertex = static_cast<std::uint16_t>(mesh.VertexCount());
-    for (const auto& corner : face.corners) {
-        mesh.vertices.push_back(static_cast<float>(x) + corner[0]);
-        mesh.vertices.push_back(static_cast<float>(y) + corner[1]);
-        mesh.vertices.push_back(static_cast<float>(z) + corner[2]);
+
+    const atlas::TileRect uv = atlas::TileRectOf(tile);
+    const std::uint8_t shaded = ShadeChannel(face.shade);
+
+    for (std::size_t corner = 0; corner < face.corners.size(); ++corner) {
+        mesh.vertices.push_back(static_cast<float>(x) + face.corners[corner][0]);
+        mesh.vertices.push_back(static_cast<float>(y) + face.corners[corner][1]);
+        mesh.vertices.push_back(static_cast<float>(z) + face.corners[corner][2]);
 
         mesh.normals.insert(mesh.normals.end(), face.normal.begin(), face.normal.end());
 
-        mesh.colors.push_back(ShadeChannel(color.red, face.shade));
-        mesh.colors.push_back(ShadeChannel(color.green, face.shade));
-        mesh.colors.push_back(ShadeChannel(color.blue, face.shade));
-        mesh.colors.push_back(color.alpha);
+        mesh.uvs.push_back(cornerUv[corner][0] == 0 ? uv.u0 : uv.u1);
+        mesh.uvs.push_back(cornerUv[corner][1] == 0 ? uv.v0 : uv.v1);
+
+        mesh.colors.push_back(shaded);
+        mesh.colors.push_back(shaded);
+        mesh.colors.push_back(shaded);
+        mesh.colors.push_back(255);
     }
 
     mesh.indices.push_back(firstVertex);
@@ -61,6 +79,7 @@ MeshData ChunkMesher::Build(const ChunkSection& section) const {
     MeshData mesh;
     mesh.vertices.reserve(ChunkSection::Volume * 3);
     mesh.normals.reserve(ChunkSection::Volume * 3);
+    mesh.uvs.reserve(ChunkSection::Volume * 2);
     mesh.colors.reserve(ChunkSection::Volume * 4);
     mesh.indices.reserve(ChunkSection::Volume * 6);
 
@@ -72,12 +91,13 @@ MeshData ChunkMesher::Build(const ChunkSection& section) const {
                     continue;
                 }
 
-                const BlockColor color = GetBlockDefinition(block).color;
-                for (const FaceDefinition& face : faces) {
+                for (std::size_t faceIndex = 0; faceIndex < faces.size(); ++faceIndex) {
+                    const FaceDefinition& face = faces[faceIndex];
                     const BlockId neighbor =
                         section.Get(x + face.neighborX, y + face.neighborY, z + face.neighborZ);
                     if (!IsOccludingBlock(neighbor)) {
-                        AppendFace(mesh, face, x, y, z, color);
+                        AppendFace(mesh, face, x, y, z,
+                                   GetBlockFaceTile(block, static_cast<int>(faceIndex)));
                     }
                 }
             }

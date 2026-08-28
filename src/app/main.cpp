@@ -1,4 +1,5 @@
 #include "core/BuildInfo.hpp"
+#include "render/BlockAtlas.hpp"
 #include "render/ChunkRenderMesh.hpp"
 #include "world/Block.hpp"
 #include "world/ChunkMesher.hpp"
@@ -72,6 +73,12 @@ int main(int argc, char* argv[]) {
     }
 
     SetTargetFPS(60);
+
+    Image atlasImage = voxelgame::GenerateBlockAtlasImage();
+    Texture2D blockAtlas = LoadTextureFromImage(atlasImage);
+    UnloadImage(atlasImage);
+    SetTextureFilter(blockAtlas, TEXTURE_FILTER_POINT);
+
     int result = 0;
     {
         voxelgame::ChunkSection section = CreateTestSection();
@@ -87,7 +94,7 @@ int main(int argc, char* argv[]) {
             const auto finish = std::chrono::steady_clock::now();
             meshMilliseconds =
                 std::chrono::duration<double, std::milli>(finish - start).count();
-            if (!renderMesh.Upload(meshData)) {
+            if (!renderMesh.Upload(meshData, blockAtlas)) {
                 return false;
             }
             section.MarkMeshClean();
@@ -133,7 +140,7 @@ int main(int argc, char* argv[]) {
                                 Fade(SKYBLUE, 0.35F));
                 EndMode3D();
 
-                DrawRectangle(12, 12, 360, 184, Fade(BLACK, 0.72F));
+                DrawRectangle(12, 12, 360, 206, Fade(BLACK, 0.72F));
                 DrawText("VOXEL-FIRST / TEST SECTION", 24, 22, 22, LIME);
                 DrawText(TextFormat("Platform: %.*s", static_cast<int>(build.platform.size()),
                                     build.platform.data()),
@@ -152,6 +159,9 @@ int main(int argc, char* argv[]) {
                                     meshRebuilds),
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
+                DrawText(TextFormat("Atlas: %ix%i procedural (POINT)", blockAtlas.width,
+                                    blockAtlas.height),
+                         24, 192, 18, LIGHTGRAY);
                 DrawText("R / gamepad A: toggle voxel + rebuild mesh", 20, 510, 18, GRAY);
 
                 EndDrawing();
@@ -164,6 +174,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    UnloadTexture(blockAtlas);
     CloseWindow();
     return result;
 }

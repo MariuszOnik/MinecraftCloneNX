@@ -14,7 +14,8 @@ public:
     ChunkRenderMesh(const ChunkRenderMesh&) = delete;
     ChunkRenderMesh& operator=(const ChunkRenderMesh&) = delete;
 
-    bool Upload(const MeshData& data);
+    // The atlas texture stays owned by the caller; the render mesh only samples it.
+    bool Upload(const MeshData& data, Texture2D atlas);
     void Draw(Vector3 position) const;
     [[nodiscard]] bool IsReady() const noexcept { return ready_; }
 
