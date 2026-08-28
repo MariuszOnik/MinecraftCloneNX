@@ -70,8 +70,19 @@ target_include_directories(voxelgame_core
         "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
+add_library(voxelgame_world STATIC
+    src/world/Block.cpp
+    src/world/ChunkMesher.cpp
+    src/world/ChunkSection.cpp
+)
+target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+add_library(voxelgame_render STATIC src/render/ChunkRenderMesh.cpp)
+target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(voxelgame_render PUBLIC voxelgame_world PRIVATE raylib)
+
 add_executable(voxelgame src/app/main.cpp)
-target_link_libraries(voxelgame PRIVATE voxelgame_core raylib)
+target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render raylib)
 
 if(MINGW)
     target_link_options(voxelgame PRIVATE -static -static-libgcc -static-libstdc++)
@@ -79,9 +90,13 @@ endif()
 
 if(MSVC)
     target_compile_options(voxelgame_core PRIVATE /W4 /permissive-)
+    target_compile_options(voxelgame_world PRIVATE /W4 /permissive-)
+    target_compile_options(voxelgame_render PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame PRIVATE /W4 /permissive-)
 else()
     target_compile_options(voxelgame_core PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(voxelgame_world PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(voxelgame_render PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
@@ -111,6 +126,13 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_options(voxelgame_core_tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
+    add_executable(voxelgame_world_tests tests/ChunkMesherTests.cpp)
+    target_link_libraries(voxelgame_world_tests PRIVATE voxelgame_world)
+    if(MINGW)
+        target_link_options(voxelgame_world_tests PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+
     add_test(NAME core.build_info COMMAND voxelgame_core_tests)
+    add_test(NAME world.chunk_mesher COMMAND voxelgame_world_tests)
     add_test(NAME app.smoke COMMAND voxelgame --smoke-test)
 endif()

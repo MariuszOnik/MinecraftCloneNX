@@ -1,6 +1,6 @@
 # VoxelGame
 
-Cross-platform voxel game in C++17 and raylib, currently implementing milestone M0. No chunk code is permitted until the PC build, remote Switch build, and downloaded GitHub Actions NRO pass their required tests.
+Cross-platform voxel game in C++17 and raylib. M0 is complete; development now follows the accepted voxel-first order with a test section and CPU mesher before later gameplay systems.
 
 ## PC
 

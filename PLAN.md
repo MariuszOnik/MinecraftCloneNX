@@ -467,6 +467,25 @@ Gra pokazuje opcjonalnie:
 
 ## 13. Kamienie milowe
 
+### Zaakceptowany priorytet wykonawczy: voxel-first
+
+Po ukończeniu M0 realizujemy najpierw fundament świata voxelowego. Spike dynamicznego mesha z M1 jest wykonywany razem z pierwszą testową sekcją M2, a spike przezroczystości zostaje włączony do etapu osobnych warstw materiałów. Spike Lua i hierarchicznego modelu pozostają wymagane, ale nie blokują budowy podstaw chunków.
+
+Kolejność prac:
+
+1. dynamiczny mesh oraz jedna testowa sekcja `16 × 16 × 16`;
+2. rejestr bloków i usuwanie ścian zasłoniętych przez sąsiada;
+3. sąsiedzi na granicach sekcji i oznaczanie obu sekcji jako dirty;
+4. greedy meshing;
+5. osobne warstwy `opaque`, `cutout`, `transparent` i scena przezroczystości;
+6. kolejka przebudowy meshów z limitem pracy na klatkę;
+7. frustum culling;
+8. streaming według odległości od gracza;
+9. paleta bloków i kompresja danych;
+10. dalsze optymalizacje dopiero po pomiarach.
+
+Każdy zamknięty wycinek przechodzi lokalny build i test PC, build Switch w GitHub Actions oraz test pobranego `.nro` w emulatorze. Nie łączymy całej listy w jeden duży etap.
+
 ### M0 — repozytorium i powtarzalny build
 
 Rezultat:
@@ -682,4 +701,4 @@ Codex ma rozpocząć od M0, a następnie M1. Pierwszy pull request powinien zawi
 - ekran diagnostyczny pokazujący platformę, wersję i hash commita;
 - instrukcję pobrania artefaktu `.nro` z telefonu.
 
-Dopiero po przejściu M0 i czterech spike'ów z M1 zaczynamy właściwy system chunków.
+Po przejściu M0 obowiązuje zaakceptowany priorytet voxel-first opisany w sekcji 13. Spike Lua i modelu hierarchicznego wracają po zbudowaniu fundamentu chunków, przed systemami gameplayu zależnymi od tych technologii.
