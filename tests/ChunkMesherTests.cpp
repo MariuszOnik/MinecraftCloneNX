@@ -4,6 +4,7 @@
 #include "world/BlockAtlasLayout.hpp"
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
+#include "world/World.hpp"
 
 #include <array>
 #include <cmath>
@@ -195,10 +196,47 @@ int main() {
                "padded atlas size is accepted");
     }
 
+    // World: block access, boundary dirty propagation, cross-section culling.
+    {
+        World world(2, 1, 1);  // 32 x 16 x 16 blocks
+        Expect(world.BlocksX() == 32 && world.BlocksY() == 16 && world.BlocksZ() == 16,
+               "world dimensions");
+        Expect(world.GetBlock(-1, 0, 0) == blocks::Air, "out-of-world read is air");
+        Expect(!world.SetBlock(40, 0, 0, blocks::Stone), "out-of-world write is rejected");
+
+        Expect(world.SetBlock(20, 5, 5, blocks::Stone), "in-world write");
+        Expect(world.GetBlock(20, 5, 5) == blocks::Stone, "write is visible via GetBlock");
+        Expect(world.SectionMeshDirty(1, 0, 0), "written section is dirty");
+
+        world.MarkSectionMeshClean(0, 0, 0);
+        world.MarkSectionMeshClean(1, 0, 0);
+        // Local x == 0 of section 1 (world x == 16) touches section 0's boundary.
+        Expect(world.SetBlock(16, 8, 8, blocks::Stone), "boundary write");
+        Expect(world.SectionMeshDirty(0, 0, 0) && world.SectionMeshDirty(1, 0, 0),
+               "a boundary edit dirties both sections");
+
+        World solid(2, 1, 1);
+        for (int y = 0; y < ChunkSection::Size; ++y) {
+            for (int z = 0; z < ChunkSection::Size; ++z) {
+                for (int x = 0; x < solid.BlocksX(); ++x) {
+                    solid.SetBlock(x, y, z, blocks::Stone);
+                }
+            }
+        }
+        const MeshData left = mesher.Build(solid, 0, 0, 0, defaultAtlas);
+        ExpectMesh(left, 5);  // +X face is culled by the neighbouring section
+        for (std::size_t q = 0; q < left.quadCount; ++q) {
+            const auto n = QuadNormal(left, q);
+            Expect(!Near(n[0], 1.0F), "no +X face where a solid neighbour section abuts");
+        }
+        // In isolation the same section keeps all six faces.
+        ExpectMesh(mesher.Build(solid.SectionAt(0, 0, 0), defaultAtlas), 6);
+    }
+
     if (failures != 0) {
         std::cerr << failures << " voxel test(s) failed\n";
         return 1;
     }
-    std::cout << "Chunk section, atlas descriptor and greedy mesher tests passed\n";
+    std::cout << "Chunk section, world and greedy mesher tests passed\n";
     return 0;
 }

@@ -31,6 +31,9 @@ public:
     [[nodiscard]] bool IsMeshDirty() const noexcept { return meshDirty_; }
     void MarkDataClean() noexcept { dataDirty_ = false; }
     void MarkMeshClean() noexcept { meshDirty_ = false; }
+    // Forces a remesh even though this section's own blocks did not change --
+    // used when a neighbouring section edits a block on the shared boundary.
+    void MarkMeshDirty() noexcept { meshDirty_ = true; }
 
 private:
     std::array<BlockId, Volume> blocks_{};

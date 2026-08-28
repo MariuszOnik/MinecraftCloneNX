@@ -2,6 +2,7 @@
 
 #include "world/Block.hpp"
 #include "world/BlockAtlasLayout.hpp"
+#include "world/World.hpp"
 
 #include <array>
 #include <cstddef>
@@ -105,9 +106,8 @@ void AppendQuad(MeshData& mesh, const int axis, const int uAxis, const int vAxis
     ++mesh.quadCount;
 }
 
-}  // namespace
-
-MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding& binding) const {
+template <typename BlockAt>
+MeshData BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
     constexpr int N = ChunkSection::Size;
 
     MeshData mesh;
@@ -132,11 +132,9 @@ MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding
                     coord[static_cast<std::size_t>(vAxis)] = b;
 
                     coord[static_cast<std::size_t>(axis)] = slice;
-                    const BlockId lo =
-                        (slice >= 0) ? section.Get(coord[0], coord[1], coord[2]) : blocks::Air;
+                    const BlockId lo = blockAt(coord[0], coord[1], coord[2]);
                     coord[static_cast<std::size_t>(axis)] = slice + 1;
-                    const BlockId hi =
-                        (slice + 1 < N) ? section.Get(coord[0], coord[1], coord[2]) : blocks::Air;
+                    const BlockId hi = blockAt(coord[0], coord[1], coord[2]);
 
                     MaskCell cell;
                     if (IsSolidBlock(lo) && !IsOccludingBlock(hi)) {
@@ -201,6 +199,28 @@ MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding
     }
 
     return mesh;
+}
+
+}  // namespace
+
+MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding& binding) const {
+    return BuildMesh(
+        [&section](const int x, const int y, const int z) noexcept {
+            return section.Get(x, y, z);
+        },
+        binding);
+}
+
+MeshData ChunkMesher::Build(const World& world, const int sectionX, const int sectionY,
+                            const int sectionZ, const BlockAtlasBinding& binding) const {
+    const int baseX = sectionX * ChunkSection::Size;
+    const int baseY = sectionY * ChunkSection::Size;
+    const int baseZ = sectionZ * ChunkSection::Size;
+    return BuildMesh(
+        [&world, baseX, baseY, baseZ](const int x, const int y, const int z) noexcept {
+            return world.GetBlock(baseX + x, baseY + y, baseZ + z);
+        },
+        binding);
 }
 
 }  // namespace voxelgame

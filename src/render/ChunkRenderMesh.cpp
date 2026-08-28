@@ -11,6 +11,23 @@ ChunkRenderMesh::~ChunkRenderMesh() {
     Unload();
 }
 
+ChunkRenderMesh::ChunkRenderMesh(ChunkRenderMesh&& other) noexcept
+    : model_(other.model_), ready_(other.ready_) {
+    other.model_ = {};
+    other.ready_ = false;
+}
+
+ChunkRenderMesh& ChunkRenderMesh::operator=(ChunkRenderMesh&& other) noexcept {
+    if (this != &other) {
+        Unload();
+        model_ = other.model_;
+        ready_ = other.ready_;
+        other.model_ = {};
+        other.ready_ = false;
+    }
+    return *this;
+}
+
 bool ChunkRenderMesh::Upload(const MeshData& data, const Texture2D atlas, const Shader shader) {
     Unload();
     if (data.Empty()) {

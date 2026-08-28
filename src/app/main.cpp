@@ -8,6 +8,7 @@
 #include "world/BlockAtlasBinding.hpp"
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
+#include "world/World.hpp"
 
 #include <raylib.h>
 
@@ -19,85 +20,89 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
-constexpr int kMarkerX = 2;
-constexpr int kMarkerY = 11;
-constexpr int kMarkerZ = 2;
+constexpr int kWorldSectionsX = 3;
+constexpr int kWorldSectionsY = 2;
+constexpr int kWorldSectionsZ = 3;
 
-voxelgame::ChunkSection CreateTestSection() {
+void AddTree(voxelgame::World& world, const int tx, const int ty, const int tz) {
     using namespace voxelgame;
-    ChunkSection section;
-    constexpr int N = ChunkSection::Size;
+    for (int dy = 0; dy < 5; ++dy) {
+        world.SetBlock(tx, ty + dy, tz, blocks::Wood);
+    }
+    for (int dy = 3; dy <= 6; ++dy) {
+        for (int dz = -2; dz <= 2; ++dz) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                if (std::abs(dx) + std::abs(dz) + std::abs(dy - 5) > 3) {
+                    continue;
+                }
+                if (dx == 0 && dz == 0 && dy < 5) {
+                    continue;
+                }
+                world.SetBlock(tx + dx, ty + dy, tz + dz, blocks::Leaves);
+            }
+        }
+    }
+}
 
-    // Layered ground: bedrock floor, stone body, dirt, grass cap.
-    for (int z = 0; z < N; ++z) {
-        for (int x = 0; x < N; ++x) {
-            const int height = 4 + ((x / 5 + z / 5) % 3);
+voxelgame::World CreateTestWorld() {
+    using namespace voxelgame;
+    World world(kWorldSectionsX, kWorldSectionsY, kWorldSectionsZ);
+
+    // Rolling layered ground spanning every section.
+    for (int z = 0; z < world.BlocksZ(); ++z) {
+        for (int x = 0; x < world.BlocksX(); ++x) {
+            const int height = 9 + ((x / 8 + z / 8) % 3) + ((x / 6 + z / 4) % 2);
             for (int y = 0; y <= height; ++y) {
                 BlockId block = blocks::Stone;
                 if (y == 0) {
                     block = blocks::Bedrock;
                 } else if (y == height) {
                     block = blocks::Grass;
-                } else if (y + 2 >= height) {
+                } else if (y + 3 >= height) {
                     block = blocks::Dirt;
                 }
-                section.Set(x, y, z, block);
+                world.SetBlock(x, y, z, block);
             }
         }
     }
 
-    // Sand and gravel patch in a corner.
-    for (int z = 1; z < 5; ++z) {
-        for (int x = 1; x < 5; ++x) {
-            section.Set(x, 5, z, ((x + z) % 2 == 0) ? blocks::Sand : blocks::Gravel);
+    // Sand + gravel shore.
+    for (int z = 2; z < 8; ++z) {
+        for (int x = 2; x < 8; ++x) {
+            world.SetBlock(x, 11, z, ((x + z) % 2 == 0) ? blocks::Sand : blocks::Gravel);
         }
     }
 
-    // Plank hut on a cobblestone base with a glass window and a doorway.
-    const int hx = 9;
-    const int hz = 9;
-    for (int dz = 0; dz < 4; ++dz) {
-        for (int dx = 0; dx < 4; ++dx) {
-            section.Set(hx + dx, 6, hz + dz, blocks::Cobblestone);
-            section.Set(hx + dx, 10, hz + dz, blocks::Planks);
-            const bool wall = dx == 0 || dz == 0 || dx == 3 || dz == 3;
+    // Plank hut on a cobblestone base with a glass window and a doorway,
+    // straddling a section boundary on purpose.
+    const int hx = 14;
+    const int hz = 12;
+    const int hy = 12;
+    for (int dz = 0; dz < 5; ++dz) {
+        for (int dx = 0; dx < 5; ++dx) {
+            world.SetBlock(hx + dx, hy, hz + dz, blocks::Cobblestone);
+            world.SetBlock(hx + dx, hy + 4, hz + dz, blocks::Planks);
+            const bool wall = dx == 0 || dz == 0 || dx == 4 || dz == 4;
             for (int dy = 1; dy <= 3 && wall; ++dy) {
                 BlockId b = blocks::Planks;
                 if (dx == 2 && dz == 0 && dy == 2) {
                     b = blocks::Glass;
-                } else if (dx == 1 && dz == 0 && dy == 1) {
+                } else if (dx == 2 && dz == 0 && dy == 1) {
                     b = blocks::Air;
                 }
-                section.Set(hx + dx, 6 + dy, hz + dz, b);
+                world.SetBlock(hx + dx, hy + dy, hz + dz, b);
             }
         }
     }
 
-    // Small tree: wood trunk with a leaf canopy.
-    const int tx = 4;
-    const int tz = 11;
-    for (int dy = 1; dy <= 4; ++dy) {
-        section.Set(tx, 6 + dy, tz, blocks::Wood);
-    }
-    for (int dy = 4; dy <= 6; ++dy) {
-        for (int dz = -2; dz <= 2; ++dz) {
-            for (int dx = -2; dx <= 2; ++dx) {
-                if (std::abs(dx) + std::abs(dz) + std::abs(dy - 5) > 3) {
-                    continue;
-                }
-                if (dx == 0 && dz == 0 && dy <= 4) {
-                    continue;
-                }
-                section.Set(tx + dx, 6 + dy, tz + dz, blocks::Leaves);
-            }
-        }
-    }
+    AddTree(world, 8, 12, 26);
+    AddTree(world, 30, 13, 8);
 
-    section.Set(kMarkerX, kMarkerY, kMarkerZ, blocks::Glass);
-    return section;
+    return world;
 }
 
 bool HasArgument(const int argc, char* argv[], const char* expected) {
@@ -244,32 +249,66 @@ int main(int argc, char* argv[]) {
 
     int result = 0;
     {
-        voxelgame::ChunkSection section = CreateTestSection();
+        voxelgame::World world = CreateTestWorld();
         voxelgame::ChunkMesher mesher;
-        voxelgame::ChunkRenderMesh renderMesh;
-        voxelgame::MeshData meshData;
+        std::vector<voxelgame::ChunkRenderMesh> meshes(
+            static_cast<std::size_t>(world.SectionCount()));
+        std::vector<std::size_t> sectionQuads(static_cast<std::size_t>(world.SectionCount()), 0);
+
+        const int markerX = world.BlocksX() / 2;
+        const int markerY = world.BlocksY() - 5;
+        const int markerZ = world.BlocksZ() / 2;
+
+        std::size_t quadTotal = 0;
+        std::size_t triangleTotal = 0;
         double meshMilliseconds = 0.0;
         int meshRebuilds = 0;
 
-        const auto rebuildMesh = [&]() {
+        const auto sectionIndex = [&](const int sx, const int sy, const int sz) {
+            return static_cast<std::size_t>((sy * world.SectionsZ() + sz) * world.SectionsX() + sx);
+        };
+
+        // Remeshes every section flagged dirty; returns false only on GPU error.
+        const auto rebuildDirty = [&]() {
             const auto start = std::chrono::steady_clock::now();
-            meshData = mesher.Build(section, atlas.binding);
-            const auto finish = std::chrono::steady_clock::now();
-            meshMilliseconds =
-                std::chrono::duration<double, std::milli>(finish - start).count();
-            if (!renderMesh.Upload(meshData, blockAtlas, tilingShader)) {
-                return false;
+            for (int sy = 0; sy < world.SectionsY(); ++sy) {
+                for (int sz = 0; sz < world.SectionsZ(); ++sz) {
+                    for (int sx = 0; sx < world.SectionsX(); ++sx) {
+                        if (!world.SectionMeshDirty(sx, sy, sz)) {
+                            continue;
+                        }
+                        const std::size_t index = sectionIndex(sx, sy, sz);
+                        const voxelgame::MeshData data =
+                            mesher.Build(world, sx, sy, sz, atlas.binding);
+                        if (!meshes[index].Upload(data, blockAtlas, tilingShader)) {
+                            return false;
+                        }
+                        sectionQuads[index] = data.quadCount;
+                        world.MarkSectionMeshClean(sx, sy, sz);
+                        ++meshRebuilds;
+                    }
+                }
             }
-            section.MarkMeshClean();
-            ++meshRebuilds;
+            meshMilliseconds =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+
+            quadTotal = 0;
+            for (const std::size_t count : sectionQuads) {
+                quadTotal += count;
+            }
+            triangleTotal = quadTotal * 2;
             return true;
         };
 
-        if (!rebuildMesh()) {
+        if (!rebuildDirty()) {
             result = 4;
         } else {
-            Camera3D camera{{24.0F, 18.0F, 24.0F},
-                            {8.0F, 3.0F, 8.0F},
+            const Vector3 worldCentre{static_cast<float>(world.BlocksX()) * 0.5F,
+                                      static_cast<float>(world.BlocksY()) * 0.35F,
+                                      static_cast<float>(world.BlocksZ()) * 0.5F};
+            Camera3D camera{{worldCentre.x + 46.0F, worldCentre.y + 40.0F, worldCentre.z + 46.0F},
+                            worldCentre,
                             {0.0F, 1.0F, 0.0F},
                             45.0F,
                             CAMERA_PERSPECTIVE};
@@ -284,10 +323,10 @@ int main(int argc, char* argv[]) {
                      IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
                 if (togglePressed) {
                     markerBlockVisible = !markerBlockVisible;
-                    section.Set(kMarkerX, kMarkerY, kMarkerZ,
-                                markerBlockVisible ? voxelgame::blocks::Glass
-                                                   : voxelgame::blocks::Air);
-                    if (!rebuildMesh()) {
+                    world.SetBlock(markerX, markerY, markerZ,
+                                   markerBlockVisible ? voxelgame::blocks::Glass
+                                                      : voxelgame::blocks::Air);
+                    if (!rebuildDirty()) {
                         result = 5;
                         break;
                     }
@@ -297,14 +336,26 @@ int main(int argc, char* argv[]) {
                 ClearBackground(Color{18, 22, 31, 255});
 
                 BeginMode3D(camera);
-                DrawGrid(32, 1.0F);
-                renderMesh.Draw({0.0F, 0.0F, 0.0F});
-                DrawBoundingBox({{0.0F, 0.0F, 0.0F}, {16.0F, 16.0F, 16.0F}},
+                DrawGrid(64, 1.0F);
+                for (int sy = 0; sy < world.SectionsY(); ++sy) {
+                    for (int sz = 0; sz < world.SectionsZ(); ++sz) {
+                        for (int sx = 0; sx < world.SectionsX(); ++sx) {
+                            meshes[sectionIndex(sx, sy, sz)].Draw(
+                                {static_cast<float>(sx * voxelgame::ChunkSection::Size),
+                                 static_cast<float>(sy * voxelgame::ChunkSection::Size),
+                                 static_cast<float>(sz * voxelgame::ChunkSection::Size)});
+                        }
+                    }
+                }
+                DrawBoundingBox({{0.0F, 0.0F, 0.0F},
+                                 {static_cast<float>(world.BlocksX()),
+                                  static_cast<float>(world.BlocksY()),
+                                  static_cast<float>(world.BlocksZ())}},
                                 Fade(SKYBLUE, 0.35F));
                 EndMode3D();
 
-                DrawRectangle(12, 12, 360, 206, Fade(BLACK, 0.72F));
-                DrawText("VOXEL-FIRST / TEST SECTION", 24, 22, 22, LIME);
+                DrawRectangle(12, 12, 380, 206, Fade(BLACK, 0.72F));
+                DrawText("VOXEL-FIRST / WORLD", 24, 22, 22, LIME);
                 DrawText(TextFormat("Platform: %.*s", static_cast<int>(build.platform.size()),
                                     build.platform.data()),
                          24, 54, 18, RAYWHITE);
@@ -312,20 +363,20 @@ int main(int argc, char* argv[]) {
                                     static_cast<int>(voxelgame::ShortCommit(build.commit).size()),
                                     voxelgame::ShortCommit(build.commit).data()),
                          24, 76, 18, LIGHTGRAY);
-                DrawText(TextFormat("Blocks: %i", static_cast<int>(section.NonAirBlockCount())),
+                DrawText(TextFormat("Sections: %i  Blocks: %i", world.SectionCount(),
+                                    static_cast<int>(world.NonAirBlockCount())),
                          24, 104, 18, LIGHTGRAY);
-                DrawText(TextFormat("Quads: %i  Triangles: %i",
-                                    static_cast<int>(meshData.quadCount),
-                                    static_cast<int>(meshData.TriangleCount())),
+                DrawText(TextFormat("Quads: %i  Triangles: %i", static_cast<int>(quadTotal),
+                                    static_cast<int>(triangleTotal)),
                          24, 126, 18, LIGHTGRAY);
-                DrawText(TextFormat("Mesh: %.3f ms  Rebuilds: %i", meshMilliseconds,
-                                    meshRebuilds),
+                DrawText(TextFormat("Mesh: %.3f ms  Rebuilds: %i", meshMilliseconds, meshRebuilds),
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Atlas: %ix%i %s (POINT)", blockAtlas.width,
                                     blockAtlas.height, atlasSourceLabel),
                          24, 192, 18, LIGHTGRAY);
-                DrawText("R / gamepad A: toggle voxel + rebuild mesh", 20, 510, 18, GRAY);
+                DrawText("R / gamepad A: toggle a block + remesh dirty sections", 20, 510, 18,
+                         GRAY);
 
                 EndDrawing();
 

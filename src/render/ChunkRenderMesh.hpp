@@ -14,6 +14,9 @@ public:
     ChunkRenderMesh(const ChunkRenderMesh&) = delete;
     ChunkRenderMesh& operator=(const ChunkRenderMesh&) = delete;
 
+    ChunkRenderMesh(ChunkRenderMesh&& other) noexcept;
+    ChunkRenderMesh& operator=(ChunkRenderMesh&& other) noexcept;
+
     // The atlas texture and shader stay owned by the caller; the render mesh only
     // references them.
     bool Upload(const MeshData& data, Texture2D atlas, Shader shader);
