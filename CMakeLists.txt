@@ -83,6 +83,7 @@ add_library(voxelgame_world STATIC
     src/world/BlockAtlasBinding.cpp
     src/world/ChunkMesher.cpp
     src/world/ChunkSection.cpp
+    src/world/PlayerBody.cpp
     src/world/World.cpp
 )
 target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -97,7 +98,10 @@ add_library(voxelgame_render STATIC
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(voxelgame_render PUBLIC voxelgame_world PRIVATE raylib)
 
-add_executable(voxelgame src/app/main.cpp)
+add_executable(voxelgame
+    src/app/Input.cpp
+    src/app/main.cpp
+)
 target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render raylib)
 
 if(MINGW)

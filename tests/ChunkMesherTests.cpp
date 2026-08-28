@@ -4,6 +4,7 @@
 #include "world/BlockAtlasLayout.hpp"
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
+#include "world/PlayerBody.hpp"
 #include "world/World.hpp"
 
 #include <array>
@@ -233,10 +234,56 @@ int main() {
         ExpectMesh(mesher.Build(solid.SectionAt(0, 0, 0), defaultAtlas), 6);
     }
 
+    // PlayerBody: gravity/landing, walls, jumping.
+    {
+        World ground(1, 1, 1);
+        for (int z = 0; z < ChunkSection::Size; ++z) {
+            for (int x = 0; x < ChunkSection::Size; ++x) {
+                ground.SetBlock(x, 0, z, blocks::Stone);
+            }
+        }
+
+        PlayerBody body(Vec3{8.0F, 6.0F, 8.0F});
+        for (int step = 0; step < 240; ++step) {
+            body.Step(ground, Vec3{0.0F, 0.0F, 0.0F}, false, 1.0F / 60.0F);
+        }
+        Expect(body.OnGround(), "player lands on the floor");
+        Expect(std::fabs(body.Position().y - 1.0F) < 0.05F,
+               "player rests on top of the y=0 block");
+
+        // Walk east into a wall column at x = 11.
+        World walled(1, 1, 1);
+        for (int y = 0; y < ChunkSection::Size; ++y) {
+            for (int z = 0; z < ChunkSection::Size; ++z) {
+                for (int x = 0; x < ChunkSection::Size; ++x) {
+                    if (y == 0 || x == 11) {
+                        walled.SetBlock(x, y, z, blocks::Stone);
+                    }
+                }
+            }
+        }
+        PlayerBody walker(Vec3{6.0F, 1.0F, 8.0F});
+        for (int step = 0; step < 240; ++step) {
+            walker.Step(walled, Vec3{6.0F, 0.0F, 0.0F}, false, 1.0F / 60.0F);
+        }
+        Expect(walker.Position().x < 11.0F - PlayerBody::Width * 0.5F + 0.02F,
+               "player stops at the wall instead of passing through");
+
+        // Jump only works from the ground.
+        PlayerBody jumper(Vec3{8.0F, 1.0F, 8.0F});
+        jumper.Step(walled, Vec3{}, false, 1.0F / 60.0F);
+        Expect(jumper.OnGround(), "jumper is grounded before jumping");
+        jumper.Step(walled, Vec3{}, true, 1.0F / 60.0F);
+        Expect(jumper.VerticalVelocity() > 0.0F && !jumper.OnGround(), "jump lifts the player");
+        const float airborne = jumper.VerticalVelocity();
+        jumper.Step(walled, Vec3{}, true, 1.0F / 60.0F);
+        Expect(jumper.VerticalVelocity() < airborne, "no mid-air second jump");
+    }
+
     if (failures != 0) {
         std::cerr << failures << " voxel test(s) failed\n";
         return 1;
     }
-    std::cout << "Chunk section, world and greedy mesher tests passed\n";
+    std::cout << "Chunk section, world, player body and greedy mesher tests passed\n";
     return 0;
 }

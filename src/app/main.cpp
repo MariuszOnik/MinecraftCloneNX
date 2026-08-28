@@ -1,3 +1,4 @@
+#include "app/Input.hpp"
 #include "core/BuildInfo.hpp"
 #include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
@@ -8,10 +9,13 @@
 #include "world/BlockAtlasBinding.hpp"
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
+#include "world/PlayerBody.hpp"
 #include "world/World.hpp"
 
 #include <raylib.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <chrono>
 #include <cstdlib>
@@ -103,6 +107,18 @@ voxelgame::World CreateTestWorld() {
     AddTree(world, 30, 13, 8);
 
     return world;
+}
+
+voxelgame::PlayerBody SpawnPlayer(const voxelgame::World& world) {
+    const int x = world.BlocksX() / 2;
+    const int z = world.BlocksZ() / 2;
+    int y = world.BlocksY() - 1;
+    while (y > 0 && !voxelgame::IsSolidBlock(world.GetBlock(x, y, z))) {
+        --y;
+    }
+    // Drop in from a few blocks up so the first frames show the world.
+    return voxelgame::PlayerBody({static_cast<float>(x) + 0.5F, static_cast<float>(y + 4),
+                                  static_cast<float>(z) + 0.5F});
 }
 
 bool HasArgument(const int argc, char* argv[], const char* expected) {
@@ -304,24 +320,66 @@ int main(int argc, char* argv[]) {
         if (!rebuildDirty()) {
             result = 4;
         } else {
-            const Vector3 worldCentre{static_cast<float>(world.BlocksX()) * 0.5F,
-                                      static_cast<float>(world.BlocksY()) * 0.35F,
-                                      static_cast<float>(world.BlocksZ()) * 0.5F};
-            Camera3D camera{{worldCentre.x + 46.0F, worldCentre.y + 40.0F, worldCentre.z + 46.0F},
-                            worldCentre,
-                            {0.0F, 1.0F, 0.0F},
-                            45.0F,
-                            CAMERA_PERSPECTIVE};
+            voxelgame::PlayerBody player = SpawnPlayer(world);
+            float yaw = 3.1415926F * 0.25F;
+            float pitch = 0.15F;
+            bool mouseLook = !smokeWindow;
+
+            Camera3D camera{};
+            camera.up = {0.0F, 1.0F, 0.0F};
+            camera.fovy = 70.0F;
+            camera.projection = CAMERA_PERSPECTIVE;
+
             bool markerBlockVisible = true;
             int renderedFrames = 0;
             while (!WindowShouldClose()) {
-                UpdateCamera(&camera, CAMERA_ORBITAL);
+                // Only react to input while focused, and release the cursor when
+                // the window loses focus so an alt-tabbed game neither drifts nor
+                // traps the mouse.
+                const bool focused = IsWindowFocused();
+                if (mouseLook && focused && !IsCursorHidden()) {
+                    DisableCursor();
+                } else if ((!mouseLook || !focused) && IsCursorHidden()) {
+                    EnableCursor();
+                }
 
-                const bool togglePressed =
-                    IsKeyPressed(KEY_R) ||
-                    (IsGamepadAvailable(0) &&
-                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
-                if (togglePressed) {
+                const voxelgame::FrameInput in =
+                    focused ? voxelgame::PollFrameInput(mouseLook) : voxelgame::FrameInput{};
+                if (in.toggleMouseLook) {
+                    mouseLook = !mouseLook;
+                    if (mouseLook) {
+                        DisableCursor();
+                    } else {
+                        EnableCursor();
+                    }
+                }
+
+                yaw += in.lookYaw;
+                pitch = std::clamp(pitch + in.lookPitch, -1.55F, 1.55F);
+                const float cy = std::cos(yaw);
+                const float sy = std::sin(yaw);
+                const float cp = std::cos(pitch);
+                const float sp = std::sin(pitch);
+                const Vector3 forward{sy * cp, sp, -cy * cp};
+                const Vector3 forwardFlat{sy, 0.0F, -cy};
+                const Vector3 rightFlat{cy, 0.0F, sy};
+
+                float wishX = forwardFlat.x * in.moveForward + rightFlat.x * in.moveStrafe;
+                float wishZ = forwardFlat.z * in.moveForward + rightFlat.z * in.moveStrafe;
+                const float wishLen = std::sqrt(wishX * wishX + wishZ * wishZ);
+                if (wishLen > 1.0F) {
+                    wishX /= wishLen;
+                    wishZ /= wishLen;
+                }
+                const float speed = in.sprint ? 7.5F : 4.5F;
+                const float dt = std::min(GetFrameTime(), 0.05F);
+                player.Step(world, {wishX * speed, 0.0F, wishZ * speed}, in.jump, dt);
+
+                const voxelgame::Vec3 eye = player.EyePosition();
+                camera.position = {eye.x, eye.y, eye.z};
+                camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
+
+                if (IsKeyPressed(KEY_R)) {
                     markerBlockVisible = !markerBlockVisible;
                     world.SetBlock(markerX, markerY, markerZ,
                                    markerBlockVisible ? voxelgame::blocks::Glass
@@ -354,7 +412,7 @@ int main(int argc, char* argv[]) {
                                 Fade(SKYBLUE, 0.35F));
                 EndMode3D();
 
-                DrawRectangle(12, 12, 380, 206, Fade(BLACK, 0.72F));
+                DrawRectangle(12, 12, 400, 230, Fade(BLACK, 0.72F));
                 DrawText("VOXEL-FIRST / WORLD", 24, 22, 22, LIME);
                 DrawText(TextFormat("Platform: %.*s", static_cast<int>(build.platform.size()),
                                     build.platform.data()),
@@ -366,17 +424,29 @@ int main(int argc, char* argv[]) {
                 DrawText(TextFormat("Sections: %i  Blocks: %i", world.SectionCount(),
                                     static_cast<int>(world.NonAirBlockCount())),
                          24, 104, 18, LIGHTGRAY);
-                DrawText(TextFormat("Quads: %i  Triangles: %i", static_cast<int>(quadTotal),
-                                    static_cast<int>(triangleTotal)),
+                DrawText(TextFormat("Quads: %i  Tris: %i  Mesh: %.2f ms",
+                                    static_cast<int>(quadTotal), static_cast<int>(triangleTotal),
+                                    meshMilliseconds),
                          24, 126, 18, LIGHTGRAY);
-                DrawText(TextFormat("Mesh: %.3f ms  Rebuilds: %i", meshMilliseconds, meshRebuilds),
+                DrawText(TextFormat("Player: %.1f %.1f %.1f  %s", static_cast<double>(eye.x),
+                                    static_cast<double>(player.Position().y),
+                                    static_cast<double>(eye.z),
+                                    player.OnGround() ? "grounded" : "airborne"),
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Atlas: %ix%i %s (POINT)", blockAtlas.width,
                                     blockAtlas.height, atlasSourceLabel),
                          24, 192, 18, LIGHTGRAY);
-                DrawText("R / gamepad A: toggle a block + remesh dirty sections", 20, 510, 18,
-                         GRAY);
+                DrawText(mouseLook ? "WASD move  Space jump  Shift run  Tab release mouse"
+                                   : "WASD move  Space jump  Tab capture mouse",
+                         24, 214, 16, GRAY);
+
+                if (mouseLook) {
+                    const int cx = GetScreenWidth() / 2;
+                    const int cy = GetScreenHeight() / 2;
+                    DrawLine(cx - 6, cy, cx + 6, cy, Fade(RAYWHITE, 0.7F));
+                    DrawLine(cx, cy - 6, cx, cy + 6, Fade(RAYWHITE, 0.7F));
+                }
 
                 EndDrawing();
 
