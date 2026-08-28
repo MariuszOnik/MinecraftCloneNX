@@ -12,6 +12,9 @@ struct FrameInput {
     bool jump = false;          // pressed this frame
     bool sprint = false;        // held
     bool toggleMouseLook = false;
+    bool breakBlock = false;    // pressed this frame
+    bool placeBlock = false;    // pressed this frame
+    int cycleBlock = 0;         // -1 / 0 / +1, change the held block
 };
 
 // `mouseLook` gates reading the mouse delta (ignored while the cursor is free).

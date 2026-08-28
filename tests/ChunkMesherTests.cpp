@@ -5,6 +5,7 @@
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
+#include "world/Raycast.hpp"
 #include "world/World.hpp"
 
 #include <array>
@@ -280,10 +281,43 @@ int main() {
         Expect(jumper.VerticalVelocity() < airborne, "no mid-air second jump");
     }
 
+    // Raycast: DDA against solid blocks with entry-face normals and reach limit.
+    {
+        World scene(1, 1, 1);
+        for (int z = 0; z < ChunkSection::Size; ++z) {
+            for (int x = 0; x < ChunkSection::Size; ++x) {
+                scene.SetBlock(x, 0, z, blocks::Stone);          // floor
+            }
+        }
+        for (int y = 0; y < ChunkSection::Size; ++y) {
+            for (int z = 0; z < ChunkSection::Size; ++z) {
+                scene.SetBlock(11, y, z, blocks::Stone);          // wall at x = 11
+            }
+        }
+
+        const RaycastHit down = Raycast(scene, Vec3{8.5F, 5.0F, 8.5F}, Vec3{0.0F, -1.0F, 0.0F}, 10.0F);
+        Expect(down.hit && down.blockX == 8 && down.blockY == 0 && down.blockZ == 8,
+               "ray down hits the floor block");
+        Expect(down.normalX == 0 && down.normalY == 1 && down.normalZ == 0,
+               "floor hit normal points up");
+
+        const RaycastHit up = Raycast(scene, Vec3{8.5F, 5.0F, 8.5F}, Vec3{0.0F, 1.0F, 0.0F}, 10.0F);
+        Expect(!up.hit, "ray into open air misses");
+
+        const RaycastHit wall =
+            Raycast(scene, Vec3{8.5F, 5.5F, 8.5F}, Vec3{1.0F, 0.0F, 0.0F}, 10.0F);
+        Expect(wall.hit && wall.blockX == 11 && wall.normalX == -1,
+               "ray east hits the wall on its -X face");
+
+        const RaycastHit tooFar =
+            Raycast(scene, Vec3{8.5F, 5.5F, 8.5F}, Vec3{1.0F, 0.0F, 0.0F}, 2.0F);
+        Expect(!tooFar.hit, "reach limit stops the ray short of the wall");
+    }
+
     if (failures != 0) {
         std::cerr << failures << " voxel test(s) failed\n";
         return 1;
     }
-    std::cout << "Chunk section, world, player body and greedy mesher tests passed\n";
+    std::cout << "Chunk section, world, player, raycast and greedy mesher tests passed\n";
     return 0;
 }

@@ -10,6 +10,7 @@
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
+#include "world/Raycast.hpp"
 #include "world/World.hpp"
 
 #include <raylib.h>
@@ -31,6 +32,14 @@ namespace {
 constexpr int kWorldSectionsX = 3;
 constexpr int kWorldSectionsY = 2;
 constexpr int kWorldSectionsZ = 3;
+
+constexpr float kReach = 5.0F;
+constexpr voxelgame::BlockId kPalette[] = {
+    voxelgame::blocks::Grass,  voxelgame::blocks::Dirt,   voxelgame::blocks::Stone,
+    voxelgame::blocks::Cobblestone, voxelgame::blocks::Planks, voxelgame::blocks::Wood,
+    voxelgame::blocks::Sand,   voxelgame::blocks::Glass,
+};
+constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
 
 void AddTree(voxelgame::World& world, const int tx, const int ty, const int tz) {
     using namespace voxelgame;
@@ -271,10 +280,6 @@ int main(int argc, char* argv[]) {
             static_cast<std::size_t>(world.SectionCount()));
         std::vector<std::size_t> sectionQuads(static_cast<std::size_t>(world.SectionCount()), 0);
 
-        const int markerX = world.BlocksX() / 2;
-        const int markerY = world.BlocksY() - 5;
-        const int markerZ = world.BlocksZ() / 2;
-
         std::size_t quadTotal = 0;
         std::size_t triangleTotal = 0;
         double meshMilliseconds = 0.0;
@@ -324,13 +329,13 @@ int main(int argc, char* argv[]) {
             float yaw = 3.1415926F * 0.25F;
             float pitch = 0.15F;
             bool mouseLook = !smokeWindow;
+            int heldBlock = 2;  // stone
 
             Camera3D camera{};
             camera.up = {0.0F, 1.0F, 0.0F};
             camera.fovy = 70.0F;
             camera.projection = CAMERA_PERSPECTIVE;
 
-            bool markerBlockVisible = true;
             int renderedFrames = 0;
             while (!WindowShouldClose()) {
                 // Only react to input while focused, and release the cursor when
@@ -379,15 +384,32 @@ int main(int argc, char* argv[]) {
                 camera.position = {eye.x, eye.y, eye.z};
                 camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
 
-                if (IsKeyPressed(KEY_R)) {
-                    markerBlockVisible = !markerBlockVisible;
-                    world.SetBlock(markerX, markerY, markerZ,
-                                   markerBlockVisible ? voxelgame::blocks::Glass
-                                                      : voxelgame::blocks::Air);
-                    if (!rebuildDirty()) {
-                        result = 5;
-                        break;
+                if (in.cycleBlock != 0) {
+                    heldBlock = ((heldBlock + in.cycleBlock) % kPaletteCount + kPaletteCount) %
+                                kPaletteCount;
+                }
+
+                const voxelgame::RaycastHit target = voxelgame::Raycast(
+                    world, eye, {forward.x, forward.y, forward.z}, kReach);
+
+                bool worldChanged = false;
+                if (target.hit && in.breakBlock) {
+                    worldChanged =
+                        world.SetBlock(target.blockX, target.blockY, target.blockZ,
+                                       voxelgame::blocks::Air);
+                }
+                if (target.hit && in.placeBlock) {
+                    const int px = target.blockX + target.normalX;
+                    const int py = target.blockY + target.normalY;
+                    const int pz = target.blockZ + target.normalZ;
+                    if (!voxelgame::IsSolidBlock(world.GetBlock(px, py, pz)) &&
+                        !player.Intersects(px, py, pz)) {
+                        worldChanged = world.SetBlock(px, py, pz, kPalette[heldBlock]);
                     }
+                }
+                if (worldChanged && !rebuildDirty()) {
+                    result = 5;
+                    break;
                 }
 
                 BeginDrawing();
@@ -410,6 +432,12 @@ int main(int argc, char* argv[]) {
                                   static_cast<float>(world.BlocksY()),
                                   static_cast<float>(world.BlocksZ())}},
                                 Fade(SKYBLUE, 0.35F));
+                if (target.hit) {
+                    const Vector3 centre{static_cast<float>(target.blockX) + 0.5F,
+                                         static_cast<float>(target.blockY) + 0.5F,
+                                         static_cast<float>(target.blockZ) + 0.5F};
+                    DrawCubeWires(centre, 1.02F, 1.02F, 1.02F, Fade(RAYWHITE, 0.9F));
+                }
                 EndMode3D();
 
                 DrawRectangle(12, 12, 400, 230, Fade(BLACK, 0.72F));
@@ -433,19 +461,24 @@ int main(int argc, char* argv[]) {
                                     static_cast<double>(eye.z),
                                     player.OnGround() ? "grounded" : "airborne"),
                          24, 148, 18, LIGHTGRAY);
-                DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
-                DrawText(TextFormat("Atlas: %ix%i %s (POINT)", blockAtlas.width,
+                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s", GetFPS(), blockAtlas.width,
                                     blockAtlas.height, atlasSourceLabel),
-                         24, 192, 18, LIGHTGRAY);
-                DrawText(mouseLook ? "WASD move  Space jump  Shift run  Tab release mouse"
-                                   : "WASD move  Space jump  Tab capture mouse",
-                         24, 214, 16, GRAY);
+                         24, 170, 18, LIGHTGRAY);
+                DrawText(TextFormat("Held: %.*s  (Q/E or X/Y)",
+                                    static_cast<int>(
+                                        voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.size()),
+                                    voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.data()),
+                         24, 192, 18, target.hit ? LIME : LIGHTGRAY);
+                DrawText("WASD/stick move  Space/A jump  LMB/ZR break  RMB/ZL place  Tab mouse",
+                         24, 214, 15, GRAY);
 
-                if (mouseLook) {
+                {
                     const int cx = GetScreenWidth() / 2;
                     const int cy = GetScreenHeight() / 2;
-                    DrawLine(cx - 6, cy, cx + 6, cy, Fade(RAYWHITE, 0.7F));
-                    DrawLine(cx, cy - 6, cx, cy + 6, Fade(RAYWHITE, 0.7F));
+                    const Color tint = target.hit ? Color{120, 255, 140, 220}
+                                                  : Fade(RAYWHITE, 0.6F);
+                    DrawLine(cx - 7, cy, cx + 7, cy, tint);
+                    DrawLine(cx, cy - 7, cx, cy + 7, tint);
                 }
 
                 EndDrawing();

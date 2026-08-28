@@ -21,6 +21,15 @@ Vec3 PlayerBody::EyePosition() const noexcept {
     return {position_.x, position_.y + EyeHeight, position_.z};
 }
 
+bool PlayerBody::Intersects(const int bx, const int by, const int bz) const noexcept {
+    const float half = Width * 0.5F;
+    return static_cast<float>(bx) < position_.x + half &&
+           static_cast<float>(bx + 1) > position_.x - half &&
+           static_cast<float>(by) < position_.y + Height && static_cast<float>(by + 1) > position_.y &&
+           static_cast<float>(bz) < position_.z + half &&
+           static_cast<float>(bz + 1) > position_.z - half;
+}
+
 bool PlayerBody::Collides(const World& world) const noexcept {
     const float half = Width * 0.5F;
     // Shrink by a whisker so touching a flush surface is not a collision.

@@ -33,6 +33,10 @@ public:
     [[nodiscard]] bool OnGround() const noexcept { return onGround_; }
     [[nodiscard]] float VerticalVelocity() const noexcept { return velocityY_; }
 
+    // Whether the body's box overlaps the unit cube at (bx, by, bz) -- used to
+    // stop the player placing a block inside themselves.
+    [[nodiscard]] bool Intersects(int bx, int by, int bz) const noexcept;
+
 private:
     [[nodiscard]] bool Collides(const World& world) const noexcept;
 

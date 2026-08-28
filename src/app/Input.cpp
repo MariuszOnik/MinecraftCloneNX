@@ -52,6 +52,15 @@ FrameInput PollFrameInput(const bool mouseLook) {
     input.jump = IsKeyPressed(KEY_SPACE);
     input.sprint = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
     input.toggleMouseLook = IsKeyPressed(KEY_TAB);
+    input.breakBlock = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    input.placeBlock = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    input.cycleBlock = static_cast<int>(GetMouseWheelMove());
+    if (IsKeyPressed(KEY_Q)) {
+        --input.cycleBlock;
+    }
+    if (IsKeyPressed(KEY_E)) {
+        ++input.cycleBlock;
+    }
 
     if (mouseLook) {
         const Vector2 delta = GetMouseDelta();
@@ -82,6 +91,16 @@ FrameInput PollFrameInput(const bool mouseLook) {
         input.sprint = input.sprint || IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
         input.toggleMouseLook =
             input.toggleMouseLook || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
+        input.breakBlock =
+            input.breakBlock || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2);
+        input.placeBlock =
+            input.placeBlock || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2);
+        if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_UP)) {
+            ++input.cycleBlock;
+        }
+        if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) {
+            --input.cycleBlock;
+        }
     }
 
     input.moveForward = std::clamp(input.moveForward, -1.0F, 1.0F);
