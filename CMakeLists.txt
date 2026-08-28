@@ -9,25 +9,31 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(VOXELGAME_BUILD_COMMIT "" CACHE STRING "Commit hash embedded in the build")
+set(VOXELGAME_BUILD_COMMIT "" CACHE STRING
+    "Commit hash embedded in the build (empty = auto-detect on every configure)")
 
-if(NOT VOXELGAME_BUILD_COMMIT AND DEFINED ENV{GITHUB_SHA})
-    set(VOXELGAME_BUILD_COMMIT "$ENV{GITHUB_SHA}")
+# Effective commit: an explicit -D/cache override or $GITHUB_SHA wins; otherwise
+# re-detect from git on every configure so local rebuilds never show a stale hash
+# on the diagnostic screen.
+set(_vg_commit "${VOXELGAME_BUILD_COMMIT}")
+if(NOT _vg_commit AND DEFINED ENV{GITHUB_SHA})
+    set(_vg_commit "$ENV{GITHUB_SHA}")
 endif()
-
-if(NOT VOXELGAME_BUILD_COMMIT)
+if(NOT _vg_commit)
     execute_process(
         COMMAND git rev-parse --verify HEAD
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        OUTPUT_VARIABLE VOXELGAME_BUILD_COMMIT
+        OUTPUT_VARIABLE _vg_commit
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET
-        RESULT_VARIABLE VOXELGAME_GIT_RESULT
+        RESULT_VARIABLE _vg_git_result
     )
-    if(NOT VOXELGAME_GIT_RESULT EQUAL 0)
-        set(VOXELGAME_BUILD_COMMIT "unknown")
+    if(NOT _vg_git_result EQUAL 0)
+        set(_vg_commit "unknown")
     endif()
 endif()
+set(VOXELGAME_BUILD_COMMIT "${_vg_commit}")
+message(STATUS "VoxelGame build commit: ${VOXELGAME_BUILD_COMMIT}")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     set(VOXELGAME_PLATFORM "Nintendo Switch")
