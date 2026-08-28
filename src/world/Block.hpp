@@ -38,7 +38,15 @@ inline constexpr BlockId Air = 0;
 inline constexpr BlockId Grass = 1;
 inline constexpr BlockId Dirt = 2;
 inline constexpr BlockId Stone = 3;
-inline constexpr BlockId Count = 4;
+inline constexpr BlockId Cobblestone = 4;
+inline constexpr BlockId Planks = 5;
+inline constexpr BlockId Wood = 6;
+inline constexpr BlockId Sand = 7;
+inline constexpr BlockId Gravel = 8;
+inline constexpr BlockId Bedrock = 9;
+inline constexpr BlockId Leaves = 10;
+inline constexpr BlockId Glass = 11;
+inline constexpr BlockId Count = 12;
 }  // namespace blocks
 
 [[nodiscard]] const BlockDefinition& GetBlockDefinition(BlockId block) noexcept;

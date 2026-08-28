@@ -14,7 +14,7 @@ inline constexpr int TileSize = 16;
 inline constexpr int Padding = 1;
 inline constexpr int CellStride = TileSize + 2 * Padding;
 inline constexpr int Columns = 4;
-inline constexpr int Rows = 1;
+inline constexpr int Rows = 4;
 inline constexpr int TileCount = Columns * Rows;
 inline constexpr int Width = CellStride * Columns;
 inline constexpr int Height = CellStride * Rows;
@@ -24,6 +24,15 @@ enum Tile : std::uint8_t {
     GrassSide = 1,
     Dirt = 2,
     Stone = 3,
+    Cobblestone = 4,
+    Planks = 5,
+    WoodSide = 6,
+    WoodTop = 7,
+    Sand = 8,
+    Gravel = 9,
+    Bedrock = 10,
+    Leaves = 11,
+    Glass = 12,
 };
 
 // Normalised content rectangle of a tile within the atlas (inside its gutter).

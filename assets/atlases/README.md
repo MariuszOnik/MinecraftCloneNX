@@ -14,23 +14,26 @@ grid and which tile each block face uses. The engine loads `atlases/blocks.json`
 ```json
 {
   "texture": "blocks.png",
-  "atlasSize": [64, 16],          // atlas image size in pixels
-  "tileSize": 16,                 // square tile edge; must divide atlasSize
+  "atlasSize": [72, 72],          // atlas image size in pixels
+  "tileSize": 16,                 // square tile content edge
+  "padding": 1,                   // gutter px around each tile (edge extruded)
   "tiles": {                      // name -> [column, row] in the grid
-    "grass_top": [0, 0], "grass_side": [1, 0], "dirt": [2, 0], "stone": [3, 0]
+    "grass_top": [0, 0], "grass_side": [1, 0], "dirt": [2, 0], "stone": [3, 0],
+    "cobblestone": [0, 1], "planks": [1, 1], "wood_side": [2, 1], "wood_top": [3, 1],
+    "sand": [0, 2], "gravel": [1, 2], "bedrock": [2, 2], "leaves": [3, 2], "glass": [0, 3]
   },
   "blocks": {                     // block name (from the registry) -> faces
     "grass": { "top": "grass_top", "bottom": "dirt", "sides": "grass_side" },
-    "dirt": "dirt",               // a bare string sets all six faces
-    "stone": "stone"
+    "wood": { "top": "wood_top", "bottom": "wood_top", "sides": "wood_side" },
+    "stone": "stone"              // a bare string sets all six faces
   }
 }
 ```
 
-`columns` and `rows` are derived from `atlasSize / tileSize`. Tile index is
-`row * columns + column`. Face slots: `top` = +Y, `bottom` = -Y, `sides` = the
-four horizontal faces. Blocks not listed keep the compiled defaults from
-`src/world/Block.cpp`.
+`columns` and `rows` are derived from `atlasSize / (tileSize + 2*padding)`. Tile
+index is `row * columns + column`. Face slots: `top` = +Y, `bottom` = -Y,
+`sides` = the four horizontal faces. Blocks not listed keep the compiled defaults
+from `src/world/Block.cpp`.
 
 If the descriptor is missing or invalid the engine logs a warning and uses those
 compiled defaults; if the image is missing it generates one procedurally

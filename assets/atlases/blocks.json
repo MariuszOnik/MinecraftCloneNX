@@ -1,18 +1,35 @@
 {
   "schema": "voxel-atlas/1",
   "texture": "blocks.png",
-  "atlasSize": [72, 18],
+  "atlasSize": [72, 72],
   "tileSize": 16,
   "padding": 1,
   "tiles": {
-    "grass_top":  [0, 0],
-    "grass_side": [1, 0],
-    "dirt":       [2, 0],
-    "stone":      [3, 0]
+    "grass_top":   [0, 0],
+    "grass_side":  [1, 0],
+    "dirt":        [2, 0],
+    "stone":       [3, 0],
+    "cobblestone": [0, 1],
+    "planks":      [1, 1],
+    "wood_side":   [2, 1],
+    "wood_top":    [3, 1],
+    "sand":        [0, 2],
+    "gravel":      [1, 2],
+    "bedrock":     [2, 2],
+    "leaves":      [3, 2],
+    "glass":       [0, 3]
   },
   "blocks": {
-    "grass": { "top": "grass_top", "bottom": "dirt", "sides": "grass_side" },
-    "dirt":  "dirt",
-    "stone": "stone"
+    "grass":       { "top": "grass_top", "bottom": "dirt", "sides": "grass_side" },
+    "dirt":        "dirt",
+    "stone":       "stone",
+    "cobblestone": "cobblestone",
+    "planks":      "planks",
+    "wood":        { "top": "wood_top", "bottom": "wood_top", "sides": "wood_side" },
+    "sand":        "sand",
+    "gravel":      "gravel",
+    "bedrock":     "bedrock",
+    "leaves":      "leaves",
+    "glass":       "glass"
   }
 }

@@ -13,6 +13,7 @@
 
 #include <cstdio>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <optional>
@@ -21,23 +22,81 @@
 
 namespace {
 
+constexpr int kMarkerX = 2;
+constexpr int kMarkerY = 11;
+constexpr int kMarkerZ = 2;
+
 voxelgame::ChunkSection CreateTestSection() {
-    voxelgame::ChunkSection section;
-    for (int z = 0; z < voxelgame::ChunkSection::Size; ++z) {
-        for (int x = 0; x < voxelgame::ChunkSection::Size; ++x) {
-            const int height = 3 + ((x / 4 + z / 4) % 3);
+    using namespace voxelgame;
+    ChunkSection section;
+    constexpr int N = ChunkSection::Size;
+
+    // Layered ground: bedrock floor, stone body, dirt, grass cap.
+    for (int z = 0; z < N; ++z) {
+        for (int x = 0; x < N; ++x) {
+            const int height = 4 + ((x / 5 + z / 5) % 3);
             for (int y = 0; y <= height; ++y) {
-                voxelgame::BlockId block = voxelgame::blocks::Stone;
-                if (y == height) {
-                    block = voxelgame::blocks::Grass;
+                BlockId block = blocks::Stone;
+                if (y == 0) {
+                    block = blocks::Bedrock;
+                } else if (y == height) {
+                    block = blocks::Grass;
                 } else if (y + 2 >= height) {
-                    block = voxelgame::blocks::Dirt;
+                    block = blocks::Dirt;
                 }
                 section.Set(x, y, z, block);
             }
         }
     }
-    section.Set(8, 8, 8, voxelgame::blocks::Grass);
+
+    // Sand and gravel patch in a corner.
+    for (int z = 1; z < 5; ++z) {
+        for (int x = 1; x < 5; ++x) {
+            section.Set(x, 5, z, ((x + z) % 2 == 0) ? blocks::Sand : blocks::Gravel);
+        }
+    }
+
+    // Plank hut on a cobblestone base with a glass window and a doorway.
+    const int hx = 9;
+    const int hz = 9;
+    for (int dz = 0; dz < 4; ++dz) {
+        for (int dx = 0; dx < 4; ++dx) {
+            section.Set(hx + dx, 6, hz + dz, blocks::Cobblestone);
+            section.Set(hx + dx, 10, hz + dz, blocks::Planks);
+            const bool wall = dx == 0 || dz == 0 || dx == 3 || dz == 3;
+            for (int dy = 1; dy <= 3 && wall; ++dy) {
+                BlockId b = blocks::Planks;
+                if (dx == 2 && dz == 0 && dy == 2) {
+                    b = blocks::Glass;
+                } else if (dx == 1 && dz == 0 && dy == 1) {
+                    b = blocks::Air;
+                }
+                section.Set(hx + dx, 6 + dy, hz + dz, b);
+            }
+        }
+    }
+
+    // Small tree: wood trunk with a leaf canopy.
+    const int tx = 4;
+    const int tz = 11;
+    for (int dy = 1; dy <= 4; ++dy) {
+        section.Set(tx, 6 + dy, tz, blocks::Wood);
+    }
+    for (int dy = 4; dy <= 6; ++dy) {
+        for (int dz = -2; dz <= 2; ++dz) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                if (std::abs(dx) + std::abs(dz) + std::abs(dy - 5) > 3) {
+                    continue;
+                }
+                if (dx == 0 && dz == 0 && dy <= 4) {
+                    continue;
+                }
+                section.Set(tx + dx, 6 + dy, tz + dz, blocks::Leaves);
+            }
+        }
+    }
+
+    section.Set(kMarkerX, kMarkerY, kMarkerZ, blocks::Glass);
     return section;
 }
 
@@ -225,8 +284,8 @@ int main(int argc, char* argv[]) {
                      IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
                 if (togglePressed) {
                     markerBlockVisible = !markerBlockVisible;
-                    section.Set(8, 8, 8,
-                                markerBlockVisible ? voxelgame::blocks::Grass
+                    section.Set(kMarkerX, kMarkerY, kMarkerZ,
+                                markerBlockVisible ? voxelgame::blocks::Glass
                                                    : voxelgame::blocks::Air);
                     if (!rebuildMesh()) {
                         result = 5;
