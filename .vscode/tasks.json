@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure PC",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\run-pc-build.ps1", "-Action", "configure"],
+      "problemMatcher": []
+    },
+    {
+      "label": "build PC",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\run-pc-build.ps1", "-Action", "build"],
+      "dependsOn": "configure PC",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "test PC",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\run-pc-build.ps1", "-Action", "test"],
+      "dependsOn": "build PC",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "run PC",
+      "type": "shell",
+      "command": "${workspaceFolder}\\build\\pc-debug\\voxelgame.exe",
+      "dependsOn": "build PC",
+      "problemMatcher": []
+    },
+    {
+      "label": "build Switch",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\build-switch.ps1"],
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}

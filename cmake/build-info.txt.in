@@ -1,0 +1,6 @@
+name=VoxelGame
+version=@PROJECT_VERSION@
+commit=@VOXELGAME_BUILD_COMMIT@
+platform=@VOXELGAME_PLATFORM@
+raylib_nx_commit=aa030655796637f14d3e66cb9b64bef136ed4ef7
+

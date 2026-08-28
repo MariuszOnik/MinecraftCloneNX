@@ -1,0 +1,2 @@
+VoxelGame romfs marker for M0 artifact verification.
+

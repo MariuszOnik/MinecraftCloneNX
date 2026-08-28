@@ -1,0 +1,10 @@
+/build/
+/out/
+/.cache/
+/.vs/
+/.vscode/*.log
+*.user
+*.nro
+*.nacp
+*.elf
+

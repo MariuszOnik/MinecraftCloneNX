@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "VoxelGame (PC Debug)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\build\\pc-debug\\voxelgame.exe",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build PC",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb.exe"
+    }
+  ]
+}
+
