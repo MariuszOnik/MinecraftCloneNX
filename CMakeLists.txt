@@ -91,6 +91,11 @@ if(MINGW)
     target_link_options(voxelgame PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
+# Runtime assets. On desktop they are staged next to the executable so the game
+# finds them via GetApplicationDirectory(); on Switch they are merged into the
+# NRO's romfs image below.
+set(VOXELGAME_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+
 if(MSVC)
     target_compile_options(voxelgame_core PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_world PRIVATE /W4 /permissive-)
@@ -110,16 +115,39 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         AUTHOR "Voxel Game contributors"
         VERSION "${PROJECT_VERSION}"
     )
+
+    # Assemble the romfs image: the tracked romfs/ tree plus the shared assets.
+    set(VOXELGAME_ROMFS_STAGE "${CMAKE_CURRENT_BINARY_DIR}/romfs-stage")
+    file(MAKE_DIRECTORY "${VOXELGAME_ROMFS_STAGE}")
+    add_custom_target(voxelgame_romfs ALL
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${VOXELGAME_ROMFS_STAGE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/romfs" "${VOXELGAME_ROMFS_STAGE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${VOXELGAME_ASSET_DIR}" "${VOXELGAME_ROMFS_STAGE}"
+        BYPRODUCTS "${VOXELGAME_ROMFS_STAGE}"
+        COMMENT "Staging romfs (romfs/ + assets/)"
+        VERBATIM
+    )
+
     nx_create_nro(
         voxelgame_nro
         TARGET voxelgame
         OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/voxelgame.nro"
         NACP "${CMAKE_CURRENT_BINARY_DIR}/voxelgame.nacp"
-        ROMFS "${CMAKE_CURRENT_SOURCE_DIR}/romfs"
+        ROMFS "${VOXELGAME_ROMFS_STAGE}"
     )
+    add_dependencies(voxelgame_nro voxelgame_romfs)
 else()
+    add_custom_command(TARGET voxelgame POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${VOXELGAME_ASSET_DIR}" "$<TARGET_FILE_DIR:voxelgame>/assets"
+        COMMENT "Staging assets next to voxelgame"
+        VERBATIM
+    )
     install(TARGETS voxelgame RUNTIME DESTINATION .)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/build-info.txt" DESTINATION .)
+    install(DIRECTORY "${VOXELGAME_ASSET_DIR}/" DESTINATION assets)
 endif()
 
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)

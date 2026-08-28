@@ -50,6 +50,38 @@ void PrintBuildInfo(const voxelgame::BuildInfo& info) {
                 static_cast<int>(info.commit.size()), info.commit.data());
 }
 
+// Runtime location of the block atlas. On Switch it lives in the NRO's romfs; on
+// desktop it sits in the assets folder staged next to the executable.
+std::string BlockAtlasPath() {
+#if defined(__SWITCH__)
+    return "romfs:/atlases/blocks.png";
+#else
+    return std::string(GetApplicationDirectory()) + "assets/atlases/blocks.png";
+#endif
+}
+
+// Loads the atlas from disk, falling back to the procedural generator with a
+// loud warning so a missing asset is never silently hidden.
+Texture2D LoadBlockAtlas(bool& fromFile) {
+    const std::string path = BlockAtlasPath();
+    Texture2D atlas{};
+    if (FileExists(path.c_str())) {
+        Image image = LoadImage(path.c_str());
+        atlas = LoadTextureFromImage(image);
+        UnloadImage(image);
+    }
+    fromFile = atlas.id != 0;
+    if (!fromFile) {
+        TraceLog(LOG_WARNING, "VOXEL: block atlas '%s' unavailable, using procedural fallback",
+                 path.c_str());
+        Image image = voxelgame::GenerateBlockAtlasImage();
+        atlas = LoadTextureFromImage(image);
+        UnloadImage(image);
+    }
+    SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
+    return atlas;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -64,6 +96,18 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (HasArgument(argc, argv, "--export-atlas")) {
+        Image image = voxelgame::GenerateBlockAtlasImage();
+        const bool exported = ExportImage(image, "assets/atlases/blocks.png");
+        UnloadImage(image);
+        if (!exported) {
+            std::fputs("Failed to export block atlas\n", stderr);
+            return 4;
+        }
+        std::puts("Wrote assets/atlases/blocks.png");
+        return 0;
+    }
+
     const bool smokeWindow = HasArgument(argc, argv, "--smoke-window");
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(960, 540, "VoxelGame - voxel-first");
@@ -74,10 +118,8 @@ int main(int argc, char* argv[]) {
 
     SetTargetFPS(60);
 
-    Image atlasImage = voxelgame::GenerateBlockAtlasImage();
-    Texture2D blockAtlas = LoadTextureFromImage(atlasImage);
-    UnloadImage(atlasImage);
-    SetTextureFilter(blockAtlas, TEXTURE_FILTER_POINT);
+    bool atlasFromFile = false;
+    Texture2D blockAtlas = LoadBlockAtlas(atlasFromFile);
 
     int result = 0;
     {
@@ -159,8 +201,9 @@ int main(int argc, char* argv[]) {
                                     meshRebuilds),
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
-                DrawText(TextFormat("Atlas: %ix%i procedural (POINT)", blockAtlas.width,
-                                    blockAtlas.height),
+                DrawText(TextFormat("Atlas: %ix%i %s (POINT)", blockAtlas.width,
+                                    blockAtlas.height,
+                                    atlasFromFile ? "blocks.png" : "procedural"),
                          24, 192, 18, LIGHTGRAY);
                 DrawText("R / gamepad A: toggle voxel + rebuild mesh", 20, 510, 18, GRAY);
 

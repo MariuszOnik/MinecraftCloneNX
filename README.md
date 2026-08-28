@@ -25,10 +25,18 @@ Every build displays its platform, project version, and commit hash. CI publishe
 
 ## Block textures
 
-Blocks are textured from an atlas of 16×16 tiles. The current atlas is generated
-procedurally at startup (`src/render/BlockAtlas.cpp`), so PC and Switch render the
-same pixels with no bundled asset. The layout — tile size, grid, and tile order —
-lives in `src/world/BlockAtlasLayout.hpp`; the block registry (`src/world/Block.cpp`)
-maps each block's six faces to a tile index. To switch to an image atlas, adjust
-those constants, point the face tiles at the right cells, and load a texture instead
-of calling `GenerateBlockAtlasImage()`.
+Blocks are textured from an atlas of 16×16 tiles kept in `assets/atlases/`. The
+folder is staged next to the desktop executable and merged into the Switch NRO's
+romfs, so the game loads it from:
+
+- desktop: `<exe dir>/assets/atlases/blocks.png`
+- Switch: `romfs:/atlases/blocks.png` (packed inside the `.nro`, **not** the SD card)
+
+If the file is missing the game falls back to a procedurally generated atlas and
+logs a warning. Regenerate the tracked PNG with `voxelgame --export-atlas` (run
+from the repo root).
+
+The layout — tile size, grid, and tile order — lives in
+`src/world/BlockAtlasLayout.hpp`; the block registry (`src/world/Block.cpp`) maps
+each block's six faces to a tile index. Replacing `blocks.png` with art of the
+same size and tile order needs no code change.

@@ -27,18 +27,25 @@ constexpr std::array<FaceDefinition, 6> faces{{
     {0, 0, -1, {{{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}}, {0, 0, -1}, 0.64F},
 }};
 
-// Which tile corner each of the four face vertices maps to: (left/right, top/bottom).
-constexpr std::array<std::array<int, 2>, 4> cornerUv{{
-    {{0, 0}},
-    {{0, 1}},
-    {{1, 1}},
-    {{1, 0}},
-}};
-
 static_assert(atlas::TileCount >= 1, "atlas must define at least one tile");
 
 std::uint8_t ShadeChannel(const float shade) noexcept {
     return static_cast<std::uint8_t>(255.0F * shade);
+}
+
+// Local (u, v) of a face corner within its tile, in [0, 1]. Derived from the
+// corner's block-space position so every face reads upright: block-space up
+// (y = 1) maps to the top of the tile (v = 0), and side faces keep a stable
+// horizontal axis.
+std::array<float, 2> CornerTileUv(const FaceDefinition& face,
+                                  const std::array<float, 3>& corner) noexcept {
+    if (face.normal[1] != 0.0F) {  // top / bottom face
+        return {corner[0], corner[2]};
+    }
+    if (face.normal[0] != 0.0F) {  // +X / -X face
+        return {corner[2], 1.0F - corner[1]};
+    }
+    return {corner[0], 1.0F - corner[1]};  // +Z / -Z face
 }
 
 void AppendFace(MeshData& mesh, const FaceDefinition& face, const int x, const int y,
@@ -48,15 +55,16 @@ void AppendFace(MeshData& mesh, const FaceDefinition& face, const int x, const i
     const atlas::TileRect uv = atlas::TileRectOf(tile);
     const std::uint8_t shaded = ShadeChannel(face.shade);
 
-    for (std::size_t corner = 0; corner < face.corners.size(); ++corner) {
-        mesh.vertices.push_back(static_cast<float>(x) + face.corners[corner][0]);
-        mesh.vertices.push_back(static_cast<float>(y) + face.corners[corner][1]);
-        mesh.vertices.push_back(static_cast<float>(z) + face.corners[corner][2]);
+    for (const auto& corner : face.corners) {
+        mesh.vertices.push_back(static_cast<float>(x) + corner[0]);
+        mesh.vertices.push_back(static_cast<float>(y) + corner[1]);
+        mesh.vertices.push_back(static_cast<float>(z) + corner[2]);
 
         mesh.normals.insert(mesh.normals.end(), face.normal.begin(), face.normal.end());
 
-        mesh.uvs.push_back(cornerUv[corner][0] == 0 ? uv.u0 : uv.u1);
-        mesh.uvs.push_back(cornerUv[corner][1] == 0 ? uv.v0 : uv.v1);
+        const std::array<float, 2> local = CornerTileUv(face, corner);
+        mesh.uvs.push_back(uv.u0 + (uv.u1 - uv.u0) * local[0]);
+        mesh.uvs.push_back(uv.v0 + (uv.v1 - uv.v0) * local[1]);
 
         mesh.colors.push_back(shaded);
         mesh.colors.push_back(shaded);

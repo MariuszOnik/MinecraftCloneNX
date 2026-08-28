@@ -31,7 +31,7 @@ jobs:
           mkdir -p out/VoxelGame-Switch/romfs
           cp build/switch-release/voxelgame.nro out/VoxelGame-Switch/
           cp build/switch-release/build-info.txt out/VoxelGame-Switch/
-          cp -R romfs/. out/VoxelGame-Switch/romfs/
+          cp -R build/switch-release/romfs-stage/. out/VoxelGame-Switch/romfs/
 
       - name: Upload Switch package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
