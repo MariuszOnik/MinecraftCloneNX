@@ -1,0 +1,17 @@
+{
+  "schema": "voxel-atlas/1",
+  "texture": "blocks.png",
+  "atlasSize": [64, 16],
+  "tileSize": 16,
+  "tiles": {
+    "grass_top":  [0, 0],
+    "grass_side": [1, 0],
+    "dirt":       [2, 0],
+    "stone":      [3, 0]
+  },
+  "blocks": {
+    "grass": { "top": "grass_top", "bottom": "dirt", "sides": "grass_side" },
+    "dirt":  "dirt",
+    "stone": "stone"
+  }
+}

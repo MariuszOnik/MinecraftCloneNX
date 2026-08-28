@@ -72,11 +72,15 @@ target_include_directories(voxelgame_core
 )
 
 add_library(voxelgame_world STATIC
+    src/world/AtlasDescriptor.cpp
     src/world/Block.cpp
+    src/world/BlockAtlasBinding.cpp
     src/world/ChunkMesher.cpp
     src/world/ChunkSection.cpp
 )
 target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(voxelgame_world SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 add_library(voxelgame_render STATIC
     src/render/BlockAtlas.cpp

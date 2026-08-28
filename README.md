@@ -46,9 +46,12 @@ powershell -ExecutionPolicy Bypass -File ./scripts/deploy-switch-assets.ps1 -SdR
 
 ### Block atlas
 
-`assets/atlases/blocks.png` is a 4×1 grid of 16×16 tiles (grass top, grass side,
-dirt, stone). If it cannot be loaded the game generates one procedurally and logs
-a warning. Regenerate the tracked PNG with `voxelgame --export-atlas` (run from
-the repo root). The layout lives in `src/world/BlockAtlasLayout.hpp`; the block
-registry (`src/world/Block.cpp`) maps each block's six faces to a tile index.
-Replacing the PNG with art of the same size and tile order needs no code change.
+An atlas is an image plus a `.json` descriptor (grid size, named tiles by grid
+coordinate, per-block face mapping). The engine loads `atlases/blocks.json` and
+`atlases/blocks.png`; see [assets/atlases/README.md](assets/atlases/README.md) for
+the schema. A missing/invalid descriptor falls back to the compiled defaults in
+`src/world/Block.cpp`; a missing image falls back to a procedural atlas
+(`src/render/BlockAtlas.cpp`). Regenerate the tracked PNG with
+`voxelgame --export-atlas` (from the repo root). Swapping atlases is data-only:
+ship a new image + descriptor, no code change. JSON parsing uses the vendored
+`third_party/nlohmann/json.hpp` (v3.11.3, MIT).

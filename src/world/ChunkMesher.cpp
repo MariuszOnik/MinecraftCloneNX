@@ -4,6 +4,7 @@
 #include "world/BlockAtlasLayout.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace voxelgame {
@@ -27,8 +28,6 @@ constexpr std::array<FaceDefinition, 6> faces{{
     {0, 0, -1, {{{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}}, {0, 0, -1}, 0.64F},
 }};
 
-static_assert(atlas::TileCount >= 1, "atlas must define at least one tile");
-
 std::uint8_t ShadeChannel(const float shade) noexcept {
     return static_cast<std::uint8_t>(255.0F * shade);
 }
@@ -49,10 +48,9 @@ std::array<float, 2> CornerTileUv(const FaceDefinition& face,
 }
 
 void AppendFace(MeshData& mesh, const FaceDefinition& face, const int x, const int y,
-                const int z, const std::uint8_t tile) {
+                const int z, const atlas::TileRect uv) {
     const auto firstVertex = static_cast<std::uint16_t>(mesh.VertexCount());
 
-    const atlas::TileRect uv = atlas::TileRectOf(tile);
     const std::uint8_t shaded = ShadeChannel(face.shade);
 
     for (const auto& corner : face.corners) {
@@ -83,7 +81,7 @@ void AppendFace(MeshData& mesh, const FaceDefinition& face, const int x, const i
 
 }  // namespace
 
-MeshData ChunkMesher::Build(const ChunkSection& section) const {
+MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding& binding) const {
     MeshData mesh;
     mesh.vertices.reserve(ChunkSection::Volume * 3);
     mesh.normals.reserve(ChunkSection::Volume * 3);
@@ -105,7 +103,7 @@ MeshData ChunkMesher::Build(const ChunkSection& section) const {
                         section.Get(x + face.neighborX, y + face.neighborY, z + face.neighborZ);
                     if (!IsOccludingBlock(neighbor)) {
                         AppendFace(mesh, face, x, y, z,
-                                   GetBlockFaceTile(block, static_cast<int>(faceIndex)));
+                                   binding.FaceRect(block, static_cast<int>(faceIndex)));
                     }
                 }
             }
