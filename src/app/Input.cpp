@@ -43,7 +43,7 @@ FrameInput PollFrameInput(const bool mouseLook) {
 
     if (mouseLook) {
         const Vector2 delta = GetMouseDelta();
-        input.lookYaw = -delta.x * kMouseSensitivity;
+        input.lookYaw = delta.x * kMouseSensitivity;
         input.lookPitch = -delta.y * kMouseSensitivity;
     }
 
@@ -54,7 +54,7 @@ FrameInput PollFrameInput(const bool mouseLook) {
         input.moveStrafe += ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X));
         input.moveForward += -ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y));
         input.lookYaw +=
-            -ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X)) * kStickLookSpeed * dt;
+            ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X)) * kStickLookSpeed * dt;
         input.lookPitch +=
             -ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y)) * kStickLookSpeed * dt;
         input.jump = input.jump || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
