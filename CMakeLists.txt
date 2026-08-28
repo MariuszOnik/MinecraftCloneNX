@@ -91,6 +91,7 @@ target_include_directories(voxelgame_world SYSTEM PRIVATE
 add_library(voxelgame_render STATIC
     src/render/BlockAtlas.cpp
     src/render/ChunkRenderMesh.cpp
+    src/render/TilingShader.cpp
 )
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(voxelgame_render PUBLIC voxelgame_world PRIVATE raylib)
@@ -151,12 +152,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     )
     add_dependencies(voxelgame_nro voxelgame_romfs)
 else()
-    add_custom_command(TARGET voxelgame POST_BUILD
+    # Always mirror assets next to the executable, so editing a data file (atlas,
+    # descriptor) takes effect without a source rebuild.
+    add_custom_target(voxelgame_assets ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${VOXELGAME_ASSET_DIR}" "$<TARGET_FILE_DIR:voxelgame>/assets"
         COMMENT "Staging assets next to voxelgame"
         VERBATIM
     )
+    add_dependencies(voxelgame_assets voxelgame)
     install(TARGETS voxelgame RUNTIME DESTINATION .)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/build-info.txt" DESTINATION .)
     install(DIRECTORY "${VOXELGAME_ASSET_DIR}/" DESTINATION assets)

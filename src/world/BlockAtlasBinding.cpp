@@ -15,6 +15,8 @@ void BlockAtlasBinding::Apply(const AtlasDescriptor& descriptor) {
     rows_ = descriptor.rows;
     width_ = descriptor.atlasWidth;
     height_ = descriptor.atlasHeight;
+    tileSize_ = descriptor.tileSize;
+    padding_ = descriptor.padding;
 
     for (BlockId id = 0; id < blocks::Count; ++id) {
         const auto match = descriptor.blockFaceTiles.find(std::string(GetBlockDefinition(id).name));
@@ -33,7 +35,8 @@ std::uint8_t BlockAtlasBinding::FaceTile(const BlockId block, const int faceInde
 
 atlas::TileRect BlockAtlasBinding::FaceRect(const BlockId block,
                                            const int faceIndex) const noexcept {
-    return atlas::TileRectOf(FaceTile(block, faceIndex), columns_, rows_, width_, height_);
+    return atlas::TileRectOf(FaceTile(block, faceIndex), columns_, rows_, width_, height_,
+                             tileSize_, padding_);
 }
 
 }  // namespace voxelgame

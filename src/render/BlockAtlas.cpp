@@ -109,11 +109,15 @@ Color PixelFor(const int tile, const int px, const int py) noexcept {
 Image GenerateBlockAtlasImage() {
     Image image = GenImageColor(atlas::Width, atlas::Height, BLANK);
     for (int tile = 0; tile < atlas::TileCount; ++tile) {
-        const int originX = (tile % atlas::Columns) * atlas::TileSize;
-        const int originY = (tile / atlas::Columns) * atlas::TileSize;
-        for (int py = 0; py < atlas::TileSize; ++py) {
-            for (int px = 0; px < atlas::TileSize; ++px) {
-                ImageDrawPixel(&image, originX + px, originY + py, PixelFor(tile, px, py));
+        const int cellX = (tile % atlas::Columns) * atlas::CellStride;
+        const int cellY = (tile / atlas::Columns) * atlas::CellStride;
+        // Fill the whole cell; pixels in the gutter clamp to the nearest content
+        // pixel so the tile's edge is extruded outward.
+        for (int cy = 0; cy < atlas::CellStride; ++cy) {
+            for (int cx = 0; cx < atlas::CellStride; ++cx) {
+                const int sx = std::clamp(cx - atlas::Padding, 0, atlas::TileSize - 1);
+                const int sy = std::clamp(cy - atlas::Padding, 0, atlas::TileSize - 1);
+                ImageDrawPixel(&image, cellX + cx, cellY + cy, PixelFor(tile, sx, sy));
             }
         }
     }

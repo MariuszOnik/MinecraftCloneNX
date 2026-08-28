@@ -1,8 +1,9 @@
 {
   "schema": "voxel-atlas/1",
   "texture": "blocks.png",
-  "atlasSize": [64, 16],
+  "atlasSize": [72, 18],
   "tileSize": 16,
+  "padding": 1,
   "tiles": {
     "grass_top":  [0, 0],
     "grass_side": [1, 0],

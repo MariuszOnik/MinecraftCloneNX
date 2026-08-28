@@ -91,13 +91,18 @@ std::optional<AtlasDescriptor> ParseAtlasDescriptor(const std::string_view jsonT
     descriptor.atlasWidth = size->at(0).get<int>();
     descriptor.atlasHeight = size->at(1).get<int>();
     descriptor.tileSize = root.value("tileSize", 0);
-    if (descriptor.tileSize <= 0 || descriptor.atlasWidth % descriptor.tileSize != 0 ||
-        descriptor.atlasHeight % descriptor.tileSize != 0) {
-        error = "\"tileSize\" must be positive and divide the atlas size";
+    descriptor.padding = root.value("padding", 0);
+    if (descriptor.tileSize <= 0 || descriptor.padding < 0) {
+        error = "\"tileSize\" must be positive and \"padding\" non-negative";
         return std::nullopt;
     }
-    descriptor.columns = descriptor.atlasWidth / descriptor.tileSize;
-    descriptor.rows = descriptor.atlasHeight / descriptor.tileSize;
+    const int stride = descriptor.tileSize + 2 * descriptor.padding;
+    if (descriptor.atlasWidth % stride != 0 || descriptor.atlasHeight % stride != 0) {
+        error = "atlasSize must be a whole number of (tileSize + 2*padding) cells";
+        return std::nullopt;
+    }
+    descriptor.columns = descriptor.atlasWidth / stride;
+    descriptor.rows = descriptor.atlasHeight / stride;
 
     const auto tiles = root.find("tiles");
     const auto blocksNode = root.find("blocks");

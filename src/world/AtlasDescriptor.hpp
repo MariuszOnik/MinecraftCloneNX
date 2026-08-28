@@ -16,7 +16,8 @@ struct AtlasDescriptor {
     std::string texture;           // image filename, relative to the descriptor
     int atlasWidth = 0;
     int atlasHeight = 0;
-    int tileSize = 0;
+    int tileSize = 0;              // tile content size in pixels
+    int padding = 0;              // gutter pixels around each tile
     int columns = 0;
     int rows = 0;
 

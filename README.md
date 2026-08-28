@@ -1,6 +1,6 @@
 # VoxelGame
 
-Cross-platform voxel game in C++17 and raylib. M0 is complete; development now follows the accepted voxel-first order with a test section and CPU mesher before later gameplay systems.
+Cross-platform voxel game in C++17 and raylib. M0 is complete; development now follows the accepted voxel-first order. The CPU mesher is greedy: coplanar faces of the same tile merge into one quad (a solid 16³ section is six quads), and a tiling shader repeats each tile across the merged quad via `tileOrigin + fract(uv) * tileExtent`, with a 1-px gutter around every atlas tile.
 
 ## PC
 

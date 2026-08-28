@@ -26,12 +26,23 @@ public:
     [[nodiscard]] int Columns() const noexcept { return columns_; }
     [[nodiscard]] int Rows() const noexcept { return rows_; }
 
+    // Normalised size of one tile's content in the atlas, for the tiling shader's
+    // fract() -> atlas mapping.
+    [[nodiscard]] float TileExtentU() const noexcept {
+        return static_cast<float>(tileSize_) / static_cast<float>(width_);
+    }
+    [[nodiscard]] float TileExtentV() const noexcept {
+        return static_cast<float>(tileSize_) / static_cast<float>(height_);
+    }
+
 private:
     std::array<BlockFaceTiles, blocks::Count> table_{};
     int columns_ = atlas::Columns;
     int rows_ = atlas::Rows;
     int width_ = atlas::Width;
     int height_ = atlas::Height;
+    int tileSize_ = atlas::TileSize;
+    int padding_ = atlas::Padding;
 };
 
 }  // namespace voxelgame

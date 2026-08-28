@@ -9,7 +9,7 @@ namespace voxelgame {
 class ChunkMesher {
 public:
     [[nodiscard]] MeshData Build(const ChunkSection& section,
-                                 const BlockAtlasBinding& atlas) const;
+                                 const BlockAtlasBinding& binding) const;
 };
 
 }  // namespace voxelgame

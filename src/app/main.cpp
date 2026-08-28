@@ -2,6 +2,7 @@
 #include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
 #include "render/ChunkRenderMesh.hpp"
+#include "render/TilingShader.hpp"
 #include "world/AtlasDescriptor.hpp"
 #include "world/Block.hpp"
 #include "world/BlockAtlasBinding.hpp"
@@ -178,6 +179,10 @@ int main(int argc, char* argv[]) {
     const Texture2D blockAtlas = atlas.texture;
     const char* const atlasSourceLabel = atlas.sourceLabel;
 
+    const Shader tilingShader = voxelgame::LoadTilingShader();
+    voxelgame::SetTilingShaderExtent(tilingShader, atlas.binding.TileExtentU(),
+                                     atlas.binding.TileExtentV());
+
     int result = 0;
     {
         voxelgame::ChunkSection section = CreateTestSection();
@@ -193,7 +198,7 @@ int main(int argc, char* argv[]) {
             const auto finish = std::chrono::steady_clock::now();
             meshMilliseconds =
                 std::chrono::duration<double, std::milli>(finish - start).count();
-            if (!renderMesh.Upload(meshData, blockAtlas)) {
+            if (!renderMesh.Upload(meshData, blockAtlas, tilingShader)) {
                 return false;
             }
             section.MarkMeshClean();
@@ -273,6 +278,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    UnloadShader(tilingShader);
     UnloadTexture(blockAtlas);
     CloseWindow();
     return result;
