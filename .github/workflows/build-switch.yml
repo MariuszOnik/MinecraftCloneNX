@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Configure
         run: cmake --preset switch-release -DVOXELGAME_BUILD_COMMIT="$GITHUB_SHA"
@@ -34,7 +34,7 @@ jobs:
           cp -R romfs/. out/VoxelGame-Switch/romfs/
 
       - name: Upload Switch package
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: VoxelGame-Switch
           path: out/VoxelGame-Switch
