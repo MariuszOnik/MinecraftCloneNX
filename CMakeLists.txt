@@ -55,6 +55,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib_nx)
 
+# raylib-nx otherwise fakes WASD/arrow keys and mouse motion from the pad, which
+# fights our own analog stick + D-pad handling. We map every action ourselves.
+if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND TARGET raylib)
+    target_compile_definitions(raylib PRIVATE NX_DISABLE_GAMEPAD_EMULATION)
+endif()
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_config.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/voxelgame/build_config.hpp"

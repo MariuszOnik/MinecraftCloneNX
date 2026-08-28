@@ -10,7 +10,14 @@ namespace {
 
 constexpr float kMouseSensitivity = 0.0028F;
 constexpr float kStickLookSpeed = 2.6F;   // radians/second at full deflection
-constexpr float kStickDeadzone = 0.22F;
+constexpr float kStickDeadzone = 0.18F;
+
+#if defined(__SWITCH__)
+// libnx analog sticks report "up" as +y; desktop backends report it as -y.
+constexpr float kStickYSign = 1.0F;
+#else
+constexpr float kStickYSign = -1.0F;
+#endif
 
 // Radial deadzone with a rescale, then a hard snap so a resting stick that just
 // creeps past the deadzone still reads as zero.
@@ -24,9 +31,14 @@ float ApplyDeadzone(const float value) noexcept {
     return scaled < 0.06F ? 0.0F : sign * scaled;
 }
 
-float Axis(const int negative, const int positive) noexcept {
+float KeyAxis(const int negative, const int positive) noexcept {
     return static_cast<float>(IsKeyDown(positive) ? 1 : 0) -
            static_cast<float>(IsKeyDown(negative) ? 1 : 0);
+}
+
+float ButtonAxis(const int negative, const int positive) noexcept {
+    return static_cast<float>(IsGamepadButtonDown(0, positive) ? 1 : 0) -
+           static_cast<float>(IsGamepadButtonDown(0, negative) ? 1 : 0);
 }
 
 }  // namespace
@@ -35,8 +47,8 @@ FrameInput PollFrameInput(const bool mouseLook) {
     const float dt = GetFrameTime();
 
     FrameInput input;
-    input.moveForward = Axis(KEY_S, KEY_W);
-    input.moveStrafe = Axis(KEY_A, KEY_D);
+    input.moveForward = KeyAxis(KEY_S, KEY_W);
+    input.moveStrafe = KeyAxis(KEY_A, KEY_D);
     input.jump = IsKeyPressed(KEY_SPACE);
     input.sprint = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
     input.toggleMouseLook = IsKeyPressed(KEY_TAB);
@@ -51,13 +63,22 @@ FrameInput PollFrameInput(const bool mouseLook) {
     // XInput slots whose axes rest slightly off-centre.
     const char* gamepadName = IsGamepadAvailable(0) ? GetGamepadName(0) : nullptr;
     if (gamepadName != nullptr && gamepadName[0] != '\0') {
-        input.moveStrafe += ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X));
-        input.moveForward += -ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y));
+        // Left stick or D-pad to move.
+        input.moveStrafe += ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X)) +
+                            ButtonAxis(GAMEPAD_BUTTON_LEFT_FACE_LEFT, GAMEPAD_BUTTON_LEFT_FACE_RIGHT);
+        input.moveForward +=
+            kStickYSign * ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y)) +
+            ButtonAxis(GAMEPAD_BUTTON_LEFT_FACE_DOWN, GAMEPAD_BUTTON_LEFT_FACE_UP);
+
+        // Right stick to look.
         input.lookYaw +=
             ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X)) * kStickLookSpeed * dt;
-        input.lookPitch +=
-            -ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y)) * kStickLookSpeed * dt;
-        input.jump = input.jump || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+        input.lookPitch += kStickYSign *
+                           ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y)) *
+                           kStickLookSpeed * dt;
+
+        input.jump = input.jump || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ||
+                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
         input.sprint = input.sprint || IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
         input.toggleMouseLook =
             input.toggleMouseLook || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
