@@ -1,4 +1,5 @@
 #include "core/BuildInfo.hpp"
+#include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
 #include "render/ChunkRenderMesh.hpp"
 #include "world/Block.hpp"
@@ -50,30 +51,38 @@ void PrintBuildInfo(const voxelgame::BuildInfo& info) {
                 static_cast<int>(info.commit.size()), info.commit.data());
 }
 
-// Runtime location of the block atlas. On Switch it lives in the NRO's romfs; on
-// desktop it sits in the assets folder staged next to the executable.
-std::string BlockAtlasPath() {
-#if defined(__SWITCH__)
-    return "romfs:/atlases/blocks.png";
-#else
-    return std::string(GetApplicationDirectory()) + "assets/atlases/blocks.png";
-#endif
+const char* AtlasSourceLabel(const voxelgame::AssetPaths::Origin origin, const bool procedural) {
+    if (procedural) {
+        return "procedural";
+    }
+    switch (origin) {
+        case voxelgame::AssetPaths::Origin::SdCard:
+            return "SD";
+        case voxelgame::AssetPaths::Origin::Bundle:
+            return "bundled";
+        default:
+            return "assets";
+    }
 }
 
-// Loads the atlas from disk, falling back to the procedural generator with a
-// loud warning so a missing asset is never silently hidden.
-Texture2D LoadBlockAtlas(bool& fromFile) {
-    const std::string path = BlockAtlasPath();
+// Loads the atlas via the asset resolver (SD card first, then the bundled copy),
+// falling back to the procedural generator with a loud warning so a missing
+// asset is never silently hidden.
+Texture2D LoadBlockAtlas(const voxelgame::AssetPaths& assets, const char*& sourceLabel) {
+    const voxelgame::AssetPaths::Resolved resolved = assets.Resolve("atlases/blocks.png");
     Texture2D atlas{};
-    if (FileExists(path.c_str())) {
-        Image image = LoadImage(path.c_str());
+    if (resolved.found) {
+        Image image = LoadImage(resolved.path.c_str());
         atlas = LoadTextureFromImage(image);
         UnloadImage(image);
     }
-    fromFile = atlas.id != 0;
-    if (!fromFile) {
+    if (atlas.id != 0) {
+        sourceLabel = AtlasSourceLabel(resolved.origin, false);
+        TraceLog(LOG_INFO, "VOXEL: loaded block atlas from '%s'", resolved.path.c_str());
+    } else {
+        sourceLabel = AtlasSourceLabel(resolved.origin, true);
         TraceLog(LOG_WARNING, "VOXEL: block atlas '%s' unavailable, using procedural fallback",
-                 path.c_str());
+                 resolved.path.c_str());
         Image image = voxelgame::GenerateBlockAtlasImage();
         atlas = LoadTextureFromImage(image);
         UnloadImage(image);
@@ -118,8 +127,9 @@ int main(int argc, char* argv[]) {
 
     SetTargetFPS(60);
 
-    bool atlasFromFile = false;
-    Texture2D blockAtlas = LoadBlockAtlas(atlasFromFile);
+    const voxelgame::AssetPaths assets(GetApplicationDirectory());
+    const char* atlasSourceLabel = "procedural";
+    Texture2D blockAtlas = LoadBlockAtlas(assets, atlasSourceLabel);
 
     int result = 0;
     {
@@ -202,8 +212,7 @@ int main(int argc, char* argv[]) {
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i", GetFPS()), 24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Atlas: %ix%i %s (POINT)", blockAtlas.width,
-                                    blockAtlas.height,
-                                    atlasFromFile ? "blocks.png" : "procedural"),
+                                    blockAtlas.height, atlasSourceLabel),
                          24, 192, 18, LIGHTGRAY);
                 DrawText("R / gamepad A: toggle voxel + rebuild mesh", 20, 510, 18, GRAY);
 

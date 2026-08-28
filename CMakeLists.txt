@@ -62,6 +62,7 @@ configure_file(
 
 add_library(voxelgame_core STATIC
     src/core/BuildInfo.cpp
+    src/platform/Assets.cpp
     src/platform/Platform.cpp
 )
 target_include_directories(voxelgame_core
@@ -116,7 +117,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         VERSION "${PROJECT_VERSION}"
     )
 
-    # Assemble the romfs image: the tracked romfs/ tree plus the shared assets.
+    # Assemble the romfs image: the tracked romfs/ tree plus the shared assets
+    # under assets/, mirroring the SD-card layout (sdmc:/switch/voxelgame/assets/).
     set(VOXELGAME_ROMFS_STAGE "${CMAKE_CURRENT_BINARY_DIR}/romfs-stage")
     file(MAKE_DIRECTORY "${VOXELGAME_ROMFS_STAGE}")
     add_custom_target(voxelgame_romfs ALL
@@ -124,9 +126,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/romfs" "${VOXELGAME_ROMFS_STAGE}"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${VOXELGAME_ASSET_DIR}" "${VOXELGAME_ROMFS_STAGE}"
+                "${VOXELGAME_ASSET_DIR}" "${VOXELGAME_ROMFS_STAGE}/assets"
         BYPRODUCTS "${VOXELGAME_ROMFS_STAGE}"
-        COMMENT "Staging romfs (romfs/ + assets/)"
+        COMMENT "Staging romfs (romfs/ + assets/ -> assets/)"
         VERBATIM
     )
 

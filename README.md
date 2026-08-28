@@ -23,20 +23,32 @@ The output is `build/switch-release/voxelgame.nro`. Compilation alone gives it `
 
 Every build displays its platform, project version, and commit hash. CI publishes `VoxelGame-Windows`, `VoxelGame-Switch`, and `VoxelGame-Test-Report` artifacts.
 
-## Block textures
+## Runtime assets
 
-Blocks are textured from an atlas of 16×16 tiles kept in `assets/atlases/`. The
-folder is staged next to the desktop executable and merged into the Switch NRO's
-romfs, so the game loads it from:
+Atlases, and later models and Lua scripts, live in `assets/`. They are resolved
+at runtime in priority order (`src/platform/Assets.cpp`):
 
-- desktop: `<exe dir>/assets/atlases/blocks.png`
-- Switch: `romfs:/atlases/blocks.png` (packed inside the `.nro`, **not** the SD card)
+| platform | first | fallback |
+|----------|-------|----------|
+| Switch   | `sdmc:/switch/voxelgame/assets/<rel>` | `romfs:/assets/<rel>` (bundled in the `.nro`) |
+| desktop  | `<exe dir>/assets/<rel>` | — |
 
-If the file is missing the game falls back to a procedurally generated atlas and
-logs a warning. Regenerate the tracked PNG with `voxelgame --export-atlas` (run
-from the repo root).
+The SD-card location lets you edit assets and scripts without rebuilding the NRO;
+the bundled romfs copy keeps the `.nro` self-contained. CMake stages `assets/`
+next to the desktop executable and into the romfs image; CI also ships a
+ready-to-copy `sdcard/` tree in the `VoxelGame-Switch` artifact.
 
-The layout — tile size, grid, and tile order — lives in
-`src/world/BlockAtlasLayout.hpp`; the block registry (`src/world/Block.cpp`) maps
-each block's six faces to a tile index. Replacing `blocks.png` with art of the
-same size and tile order needs no code change.
+Copy the assets onto a Switch SD card (or the Yuzu SD-card directory) with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./scripts/deploy-switch-assets.ps1 -SdRoot "D:\path\to\sdcard"
+```
+
+### Block atlas
+
+`assets/atlases/blocks.png` is a 4×1 grid of 16×16 tiles (grass top, grass side,
+dirt, stone). If it cannot be loaded the game generates one procedurally and logs
+a warning. Regenerate the tracked PNG with `voxelgame --export-atlas` (run from
+the repo root). The layout lives in `src/world/BlockAtlasLayout.hpp`; the block
+registry (`src/world/Block.cpp`) maps each block's six faces to a tile index.
+Replacing the PNG with art of the same size and tile order needs no code change.

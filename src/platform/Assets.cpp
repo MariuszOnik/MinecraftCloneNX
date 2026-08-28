@@ -1,0 +1,46 @@
+#include "platform/Assets.hpp"
+
+#include <fstream>
+
+namespace voxelgame {
+namespace {
+
+constexpr std::string_view kSdCardRoot = "sdmc:/switch/voxelgame/assets/";
+constexpr std::string_view kRomfsRoot = "romfs:/assets/";
+
+bool FileExists(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    return file.good();
+}
+
+std::string Join(const std::string_view root, const std::string_view relative) {
+    std::string joined;
+    joined.reserve(root.size() + relative.size());
+    joined.append(root);
+    joined.append(relative);
+    return joined;
+}
+
+}  // namespace
+
+AssetPaths::AssetPaths(const std::string_view desktopRoot) : desktopRoot_(desktopRoot) {}
+
+std::string_view AssetPaths::SdCardRoot() noexcept {
+    return kSdCardRoot;
+}
+
+AssetPaths::Resolved AssetPaths::Resolve(const std::string_view relative) const {
+#if defined(__SWITCH__)
+    const std::string sdCard = Join(kSdCardRoot, relative);
+    if (FileExists(sdCard)) {
+        return {sdCard, true, Origin::SdCard};
+    }
+    const std::string bundled = Join(kRomfsRoot, relative);
+    return {bundled, FileExists(bundled), Origin::Bundle};
+#else
+    const std::string desktop = Join(desktopRoot_ + "assets/", relative);
+    return {desktop, FileExists(desktop), Origin::DesktopAssets};
+#endif
+}
+
+}  // namespace voxelgame
