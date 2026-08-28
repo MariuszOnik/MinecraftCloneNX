@@ -35,14 +35,25 @@ at runtime in priority order (`src/platform/Assets.cpp`):
 
 The SD-card location lets you edit assets and scripts without rebuilding the NRO;
 the bundled romfs copy keeps the `.nro` self-contained. CMake stages `assets/`
-next to the desktop executable and into the romfs image; CI also ships a
-ready-to-copy `sdcard/` tree in the `VoxelGame-Switch` artifact.
+next to the desktop executable and into the romfs image.
 
-Copy the assets onto a Switch SD card (or the Yuzu SD-card directory) with:
+### Running on a real Switch
+
+The Switch needs homebrew (Atmosphère). Copy the build onto the SD card:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ./scripts/deploy-switch-assets.ps1 -SdRoot "D:\path\to\sdcard"
+powershell -ExecutionPolicy Bypass -File ./scripts/deploy-switch-sd.ps1 -SdRoot "E:\"
 ```
+
+`-SdRoot` is a card-reader drive, a staging folder, or the Yuzu "SD Card"
+directory. It writes `switch\voxelgame\voxelgame.nro` and
+`switch\voxelgame\assets\`. Put the card back in the Switch and launch
+**voxelgame** from the homebrew menu.
+
+The CI `VoxelGame-Switch` artifact already contains this tree under `sdcard/` —
+drop its contents onto the SD root for the same result. (MTP — *This PC → Nintendo
+Switch → SD Card* — works too, just drag the folders manually; it can't be
+scripted.)
 
 ### Block atlas
 

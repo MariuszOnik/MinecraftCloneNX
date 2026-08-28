@@ -32,10 +32,13 @@ jobs:
           cp build/switch-release/voxelgame.nro out/VoxelGame-Switch/
           cp build/switch-release/build-info.txt out/VoxelGame-Switch/
           cp -R build/switch-release/romfs-stage/. out/VoxelGame-Switch/romfs/
-          # Ready-to-copy SD-card tree: drop sdcard/ onto the Switch SD root so
-          # assets load from sdmc:/switch/voxelgame/assets/ (romfs is the fallback).
+          # Ready-to-copy SD-card tree: drop the contents of sdcard/ onto the
+          # Switch SD root, then launch switch/voxelgame/voxelgame.nro from hbmenu.
+          # Assets load from sdmc:/switch/voxelgame/assets/ (romfs is the fallback).
           mkdir -p out/VoxelGame-Switch/sdcard/switch/voxelgame
+          cp build/switch-release/voxelgame.nro out/VoxelGame-Switch/sdcard/switch/voxelgame/
           cp -R assets out/VoxelGame-Switch/sdcard/switch/voxelgame/
+          test -f out/VoxelGame-Switch/sdcard/switch/voxelgame/voxelgame.nro
           test -f out/VoxelGame-Switch/sdcard/switch/voxelgame/assets/atlases/blocks.png
 
       - name: Upload Switch package
