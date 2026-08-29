@@ -33,6 +33,57 @@ bool SameNonOpaque(const BlockId a, const BlockId b) noexcept {
     return a == b && a != blocks::Air && BlockRenderLayer(a) != RenderLayer::Opaque;
 }
 
+// A thin glass pane: two crossed quads through the block centre, each drawn from
+// both sides so it reads from any angle.
+void AppendCross(MeshData& mesh, const int bx, const int by, const int bz,
+                 const atlas::TileRect uv) {
+    constexpr float e = 0.02F;
+    const float x = static_cast<float>(bx);
+    const float y = static_cast<float>(by);
+    const float z = static_cast<float>(bz);
+
+    const std::array<std::array<std::array<float, 3>, 4>, 2> planes{{
+        // x = bx + 0.5, spanning z and y
+        {{{x + 0.5F, y, z}, {x + 0.5F, y, z + 1}, {x + 0.5F, y + 1, z + 1}, {x + 0.5F, y + 1, z}}},
+        // z = bz + 0.5, spanning x and y
+        {{{x, y, z + 0.5F}, {x + 1, y, z + 0.5F}, {x + 1, y + 1, z + 0.5F}, {x, y + 1, z + 0.5F}}},
+    }};
+    const std::array<std::array<float, 3>, 2> planeNormals{{{1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F}}};
+    const std::array<std::array<float, 2>, 4> cornerUv{{{e, 1 - e}, {1 - e, 1 - e}, {1 - e, e},
+                                                        {e, e}}};
+
+    for (std::size_t p = 0; p < planes.size(); ++p) {
+        for (int side = 0; side < 2; ++side) {
+            const float sign = side == 0 ? 1.0F : -1.0F;
+            const auto first = static_cast<std::uint16_t>(mesh.VertexCount());
+            for (std::size_t c = 0; c < 4; ++c) {
+                mesh.vertices.insert(mesh.vertices.end(), {planes[p][c][0], planes[p][c][1],
+                                                          planes[p][c][2]});
+                mesh.normals.insert(mesh.normals.end(),
+                                    {planeNormals[p][0] * sign, planeNormals[p][1] * sign,
+                                     planeNormals[p][2] * sign});
+                mesh.uvs.push_back(cornerUv[c][0]);
+                mesh.uvs.push_back(cornerUv[c][1]);
+                mesh.tileOrigins.push_back(uv.u0);
+                mesh.tileOrigins.push_back(uv.v0);
+                mesh.colors.insert(mesh.colors.end(),
+                                   {std::uint8_t{217}, std::uint8_t{217}, std::uint8_t{217},
+                                    std::uint8_t{255}});
+            }
+            if (side == 0) {
+                for (const int i : {0, 1, 2, 0, 2, 3}) {
+                    mesh.indices.push_back(static_cast<std::uint16_t>(first + i));
+                }
+            } else {
+                for (const int i : {0, 2, 1, 0, 3, 2}) {
+                    mesh.indices.push_back(static_cast<std::uint16_t>(first + i));
+                }
+            }
+            ++mesh.quadCount;
+        }
+    }
+}
+
 struct MaskCell {
     bool present = false;
     bool positive = false;
@@ -147,7 +198,7 @@ SectionMesh BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) 
                     const BlockId hi = blockAt(coord[0], coord[1], coord[2]);
 
                     MaskCell cell;
-                    if (IsSolidBlock(lo) && !IsOccludingBlock(hi) &&
+                    if (IsSolidBlock(lo) && IsCubeShaped(lo) && !IsOccludingBlock(hi) &&
                         !SameNonOpaque(lo, hi)) {
                         cell.present = true;
                         cell.positive = true;
@@ -157,7 +208,7 @@ SectionMesh BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) 
                         const atlas::TileRect rect = binding.FaceRect(lo, face);
                         cell.u0 = rect.u0;
                         cell.v0 = rect.v0;
-                    } else if (IsSolidBlock(hi) && !IsOccludingBlock(lo) &&
+                    } else if (IsSolidBlock(hi) && IsCubeShaped(hi) && !IsOccludingBlock(lo) &&
                                !SameNonOpaque(hi, lo)) {
                         cell.present = true;
                         cell.positive = false;
@@ -208,6 +259,20 @@ SectionMesh BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) 
                         }
                     }
                     i += w;
+                }
+            }
+        }
+    }
+
+    // Non-cube blocks (glass panes) get their geometry emitted per voxel.
+    for (int y = 0; y < N; ++y) {
+        for (int z = 0; z < N; ++z) {
+            for (int x = 0; x < N; ++x) {
+                const BlockId block = blockAt(x, y, z);
+                const BlockDefinition& def = GetBlockDefinition(block);
+                if (def.solid && def.shape == BlockShape::Pane) {
+                    AppendCross(out.Layer(def.layer), x, y, z,
+                                binding.FaceRect(block, FaceIndex(0, true)));
                 }
             }
         }

@@ -32,6 +32,7 @@
     "bedrock":     "bedrock",
     "leaves":      "leaves",
     "glass":       "glass",
-    "water":       "water"
+    "water":       "water",
+    "glass_pane":  "glass"
   }
 }

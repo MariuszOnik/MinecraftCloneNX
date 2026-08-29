@@ -286,6 +286,20 @@ int main() {
         glassLeaves.Set(4, 3, 3, blocks::Leaves);
         Expect(mesher.Build(glassLeaves, defaultAtlas).Layer(RenderLayer::Transparent).quadCount == 6,
                "glass keeps its face against a different non-opaque neighbour");
+
+        // A thin pane skips the cube greedy pass and emits a 4-quad cross.
+        ChunkSection pane;
+        pane.Set(8, 8, 8, blocks::GlassPane);
+        const SectionMesh pm = mesher.Build(pane, defaultAtlas);
+        Expect(pm.Layer(RenderLayer::Opaque).Empty() && pm.Layer(RenderLayer::Cutout).Empty(),
+               "a pane has no cube geometry");
+        Expect(pm.Layer(RenderLayer::Transparent).quadCount == 4, "pane cross is 4 quads");
+        // A cube next to a pane still shows its face (the pane does not occlude).
+        ChunkSection cubePane;
+        cubePane.Set(3, 3, 3, blocks::Stone);
+        cubePane.Set(4, 3, 3, blocks::GlassPane);
+        Expect(mesher.Build(cubePane, defaultAtlas).Layer(RenderLayer::Opaque).quadCount == 6,
+               "stone keeps all six faces next to a pane");
     }
 
     // PlayerBody: gravity/landing, walls, jumping.
