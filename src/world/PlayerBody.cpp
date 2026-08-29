@@ -59,18 +59,24 @@ void PlayerBody::Step(const World& world, Vec3 wishVelocity, const bool jump,
         return;
     }
 
-    inWater_ = world.GetBlock(FloorToInt(position_.x), FloorToInt(position_.y + 0.6F),
-                              FloorToInt(position_.z)) == blocks::Water;
+    const int bx = FloorToInt(position_.x);
+    const int bz = FloorToInt(position_.z);
+    inWater_ = world.GetBlock(bx, FloorToInt(position_.y + 0.5F), bz) == blocks::Water;
+    const bool headSubmerged =
+        world.GetBlock(bx, FloorToInt(position_.y + Height - 0.3F), bz) == blocks::Water;
 
     if (inWater_) {
-        // Buoyant, draggy, and jump swims you upward.
-        velocityY_ -= Gravity * 0.28F * dt;
-        velocityY_ = std::clamp(velocityY_ - velocityY_ * 4.0F * dt, -4.0F, 6.0F);
         if (jump) {
-            velocityY_ = 4.2F;
+            // Swim up while submerged; at the surface, a full leap to climb out.
+            velocityY_ = headSubmerged ? 5.4F : JumpSpeed;
+        } else {
+            // Gentle sink -- buoyancy is disabled until we have boats.
+            // velocityY_ += Gravity * 0.5F * dt;  // TODO: buoyancy, re-enable with boats
+            velocityY_ -= Gravity * 0.30F * dt;
+            velocityY_ = std::clamp(velocityY_, -3.2F, 6.0F);
         }
-        wishVelocity.x *= 0.6F;
-        wishVelocity.z *= 0.6F;
+        wishVelocity.x *= 0.65F;
+        wishVelocity.z *= 0.65F;
     } else {
         velocityY_ -= Gravity * dt;
         velocityY_ = std::clamp(velocityY_, -TerminalFall, TerminalFall);

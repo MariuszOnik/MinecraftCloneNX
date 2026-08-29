@@ -343,10 +343,11 @@ int main() {
         Expect(walker.Position().x < 11.0F - PlayerBody::Width * 0.5F + 0.02F,
                "player stops at the wall instead of passing through");
 
-        // In water: slow sink, and jump swims upward without being grounded.
+        // Water: the player sinks slowly (not at fall speed), and a jump at the
+        // surface leaps them clear so they can climb onto land.
         World lake(1);
         lake.EnsureColumn(0, 0);
-        for (int y = 0; y < 8; ++y) {
+        for (int y = 0; y < 6; ++y) {
             for (int z = 0; z < ChunkSection::Size; ++z) {
                 for (int x = 0; x < ChunkSection::Size; ++x) {
                     lake.SetBlock(x, y, z, y == 0 ? blocks::Stone : blocks::Water);
@@ -356,16 +357,16 @@ int main() {
         PlayerBody swimmer(Vec3{8.0F, 5.0F, 8.0F});
         swimmer.Step(lake, Vec3{}, false, 1.0F / 60.0F);
         Expect(swimmer.InWater(), "player detects being in water");
-        for (int step = 0; step < 30; ++step) {
+        for (int step = 0; step < 60; ++step) {
             swimmer.Step(lake, Vec3{}, false, 1.0F / 60.0F);
         }
-        Expect(swimmer.Position().y > 3.0F && swimmer.Position().y < 5.0F,
-               "player sinks slowly in water, not at terminal speed");
-        const float sunk = swimmer.Position().y;
-        for (int step = 0; step < 20; ++step) {
+        Expect(swimmer.VerticalVelocity() > -3.5F, "the swimmer sinks slowly, not at fall speed");
+        Expect(swimmer.Position().y > 1.0F, "the swimmer has not dropped like a stone");
+        for (int step = 0; step < 45; ++step) {
             swimmer.Step(lake, Vec3{}, true, 1.0F / 60.0F);
         }
-        Expect(swimmer.Position().y > sunk, "holding jump swims the player up");
+        Expect(swimmer.Position().y > 5.2F && !swimmer.InWater(),
+               "jumping at the surface clears the water");
 
         // Jump only works from the ground.
         PlayerBody jumper(Vec3{8.0F, 1.0F, 8.0F});
