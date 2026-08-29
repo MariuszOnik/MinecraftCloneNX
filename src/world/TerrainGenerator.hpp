@@ -11,6 +11,8 @@ class World;
 // seed always produces the same world -- no raylib, so it is unit-testable.
 class TerrainGenerator {
 public:
+    static constexpr int SeaLevel = 10;
+
     explicit TerrainGenerator(std::uint32_t seed) noexcept;
 
     // Fills one 16x16 column (chunkX, chunkZ) with terrain and any trees rooted

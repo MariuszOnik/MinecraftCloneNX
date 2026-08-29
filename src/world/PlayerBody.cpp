@@ -53,17 +53,31 @@ bool PlayerBody::Collides(const World& world) const noexcept {
     return false;
 }
 
-void PlayerBody::Step(const World& world, const Vec3 wishVelocity, const bool jump,
+void PlayerBody::Step(const World& world, Vec3 wishVelocity, const bool jump,
                       const float dt) noexcept {
     if (dt <= 0.0F) {
         return;
     }
 
-    velocityY_ -= Gravity * dt;
-    velocityY_ = std::clamp(velocityY_, -TerminalFall, TerminalFall);
-    if (jump && onGround_) {
-        velocityY_ = JumpSpeed;
-        onGround_ = false;
+    inWater_ = world.GetBlock(FloorToInt(position_.x), FloorToInt(position_.y + 0.6F),
+                              FloorToInt(position_.z)) == blocks::Water;
+
+    if (inWater_) {
+        // Buoyant, draggy, and jump swims you upward.
+        velocityY_ -= Gravity * 0.28F * dt;
+        velocityY_ = std::clamp(velocityY_ - velocityY_ * 4.0F * dt, -4.0F, 6.0F);
+        if (jump) {
+            velocityY_ = 4.2F;
+        }
+        wishVelocity.x *= 0.6F;
+        wishVelocity.z *= 0.6F;
+    } else {
+        velocityY_ -= Gravity * dt;
+        velocityY_ = std::clamp(velocityY_, -TerminalFall, TerminalFall);
+        if (jump && onGround_) {
+            velocityY_ = JumpSpeed;
+            onGround_ = false;
+        }
     }
 
     const Vec3 delta{wishVelocity.x * dt, velocityY_ * dt, wishVelocity.z * dt};

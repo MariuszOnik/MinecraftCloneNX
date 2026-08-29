@@ -10,7 +10,7 @@
 namespace voxelgame {
 namespace {
 
-constexpr int kSeaLevel = 9;
+constexpr int kSeaLevel = TerrainGenerator::SeaLevel;
 constexpr int kBaseHeight = 11;
 constexpr float kAmplitude = 9.0F;
 constexpr float kFrequency = 0.045F;
@@ -135,21 +135,28 @@ void TerrainGenerator::FillColumn(World& world, const int chunkX, const int chun
             const int x = baseX + lx;
             const int z = baseZ + lz;
             const int surface = std::clamp(SurfaceHeight(x, z), 1, maxY);
-            const bool beach = surface <= kSeaLevel + 1;
+            const bool submerged = surface < kSeaLevel;
+            const bool shore = surface <= kSeaLevel + 1;
 
             for (int y = 0; y <= surface; ++y) {
                 BlockId block = blocks::Stone;
                 if (y == 0) {
                     block = blocks::Bedrock;
                 } else if (y == surface) {
-                    block = beach ? blocks::Sand : blocks::Grass;
+                    block = shore ? blocks::Sand : blocks::Grass;
                 } else if (y + 3 >= surface) {
-                    block = beach ? blocks::Sand : blocks::Dirt;
+                    block = shore ? blocks::Sand : blocks::Dirt;
                 }
                 world.SetBlock(x, y, z, block);
             }
 
-            if (!beach && surface + 8 < world.BlocksY() && ShouldPlantTree(x, z, seed_)) {
+            // Depressions below sea level fill with water.
+            for (int y = surface + 1; y <= kSeaLevel && y <= maxY; ++y) {
+                world.SetBlock(x, y, z, blocks::Water);
+            }
+
+            if (!submerged && !shore && surface + 8 < world.BlocksY() &&
+                ShouldPlantTree(x, z, seed_)) {
                 PlantTree(world, x, surface, z, seed_);
             }
         }

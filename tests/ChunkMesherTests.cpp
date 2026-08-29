@@ -339,6 +339,30 @@ int main() {
         Expect(walker.Position().x < 11.0F - PlayerBody::Width * 0.5F + 0.02F,
                "player stops at the wall instead of passing through");
 
+        // In water: slow sink, and jump swims upward without being grounded.
+        World lake(1);
+        lake.EnsureColumn(0, 0);
+        for (int y = 0; y < 8; ++y) {
+            for (int z = 0; z < ChunkSection::Size; ++z) {
+                for (int x = 0; x < ChunkSection::Size; ++x) {
+                    lake.SetBlock(x, y, z, y == 0 ? blocks::Stone : blocks::Water);
+                }
+            }
+        }
+        PlayerBody swimmer(Vec3{8.0F, 5.0F, 8.0F});
+        swimmer.Step(lake, Vec3{}, false, 1.0F / 60.0F);
+        Expect(swimmer.InWater(), "player detects being in water");
+        for (int step = 0; step < 30; ++step) {
+            swimmer.Step(lake, Vec3{}, false, 1.0F / 60.0F);
+        }
+        Expect(swimmer.Position().y > 3.0F && swimmer.Position().y < 5.0F,
+               "player sinks slowly in water, not at terminal speed");
+        const float sunk = swimmer.Position().y;
+        for (int step = 0; step < 20; ++step) {
+            swimmer.Step(lake, Vec3{}, true, 1.0F / 60.0F);
+        }
+        Expect(swimmer.Position().y > sunk, "holding jump swims the player up");
+
         // Jump only works from the ground.
         PlayerBody jumper(Vec3{8.0F, 1.0F, 8.0F});
         jumper.Step(walled, Vec3{}, false, 1.0F / 60.0F);
@@ -430,9 +454,16 @@ int main() {
                 Expect(top == blocks::Grass || top == blocks::Sand,
                        "column surface is grass or sand");
                 const BlockId above = a.GetBlock(x, surface + 1, z);
-                Expect(above == blocks::Air || above == blocks::Wood,
-                       "above the surface is air (or a tree trunk)");
-                Expect(IsSolidBlock(a.GetBlock(x, surface - 1, z)), "solid directly below the surface");
+                Expect(above == blocks::Air || above == blocks::Wood || above == blocks::Water,
+                       "above the surface is air, a trunk, or water");
+                Expect(IsCollidableBlock(a.GetBlock(x, surface - 1, z)),
+                       "solid ground directly below the surface");
+
+                if (surface < TerrainGenerator::SeaLevel) {
+                    Expect(a.GetBlock(x, TerrainGenerator::SeaLevel, z) == blocks::Water,
+                           "a submerged column has water up to sea level");
+                    Expect(top == blocks::Sand, "a submerged column's bed is sand");
+                }
                 ++checkedColumns;
             }
         }

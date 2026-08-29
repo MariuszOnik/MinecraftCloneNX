@@ -31,6 +31,7 @@ public:
     [[nodiscard]] Vec3 Position() const noexcept { return position_; }
     [[nodiscard]] Vec3 EyePosition() const noexcept;
     [[nodiscard]] bool OnGround() const noexcept { return onGround_; }
+    [[nodiscard]] bool InWater() const noexcept { return inWater_; }
     [[nodiscard]] float VerticalVelocity() const noexcept { return velocityY_; }
 
     // Whether the body's box overlaps the unit cube at (bx, by, bz) -- used to
@@ -43,6 +44,7 @@ private:
     Vec3 position_;  // centre of the bottom face ("feet")
     float velocityY_ = 0.0F;
     bool onGround_ = false;
+    bool inWater_ = false;
 };
 
 }  // namespace voxelgame

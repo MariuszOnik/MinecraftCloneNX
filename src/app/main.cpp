@@ -70,21 +70,11 @@ voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, con
                                   static_cast<float>(z) + 0.5F});
 }
 
-// A temporary glass + water showcase near spawn so transparency is visible.
+// A temporary glass showcase near spawn (water now comes from the generator).
 // Slice 5 replaces this with the proper "chamber of panes" test scene.
 void BuildShowcase(voxelgame::World& world, const int baseX, const int baseZ) {
     using namespace voxelgame;
     const int gy = SurfaceY(world, baseX, baseZ) + 1;
-
-    // Sunken 4x4 water pool.
-    for (int dz = 0; dz < 4; ++dz) {
-        for (int dx = 0; dx < 4; ++dx) {
-            world.SetBlock(baseX + dx, gy - 1, baseZ + dz, blocks::Water);
-            world.SetBlock(baseX + dx, gy - 2, baseZ + dz, blocks::Water);
-            world.SetBlock(baseX + dx, gy - 3, baseZ + dz, blocks::Sand);
-        }
-    }
-    // A short glass wall, and a row of thin glass panes in front of it.
     for (int dy = 0; dy < 3; ++dy) {
         for (int dx = 0; dx < 4; ++dx) {
             world.SetBlock(baseX + dx, gy + dy, baseZ + 6, blocks::Glass);
@@ -567,7 +557,9 @@ int main(int argc, char* argv[]) {
                 DrawText(TextFormat("Player: %.1f %.1f %.1f  %s", static_cast<double>(eye.x),
                                     static_cast<double>(player.Position().y),
                                     static_cast<double>(eye.z),
-                                    player.OnGround() ? "grounded" : "airborne"),
+                                    player.InWater()      ? "swimming"
+                                    : player.OnGround()   ? "grounded"
+                                                          : "airborne"),
                          24, 148, 18, LIGHTGRAY);
                 DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s", GetFPS(), blockAtlas.width,
                                     blockAtlas.height, atlasSourceLabel),
