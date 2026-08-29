@@ -91,20 +91,52 @@ voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, con
                                   static_cast<float>(cz) + 0.5F});
 }
 
-// A temporary glass showcase near spawn (water now comes from the generator).
-// Slice 5 replaces this with the proper "chamber of panes" test scene.
-void BuildShowcase(voxelgame::World& world, const int baseX, const int baseZ) {
+// The M4 "chamber of panes" transparency test: panes behind panes, coloured
+// glass, water seen through glass, and glass in front of and behind an opaque
+// pillar. Walk around it to check nothing breaks the opaque depth buffer.
+void BuildChamberOfPanes(voxelgame::World& world, const int ox, const int oz) {
     using namespace voxelgame;
-    const int gy = SurfaceY(world, baseX, baseZ) + 1;
+    const int gy = SurfaceY(world, ox + 7, oz + 5) + 1;
+
+    for (int dz = -1; dz < 12; ++dz) {
+        for (int dx = -1; dx < 15; ++dx) {
+            world.SetBlock(ox + dx, gy - 1, oz + dz, blocks::Planks);
+        }
+    }
+
+    // 1. Five thin panes, one behind another.
+    for (int i = 0; i < 5; ++i) {
+        for (int dy = 0; dy < 3; ++dy) {
+            world.SetBlock(ox + 2, gy + dy, oz + 1 + i * 2, blocks::GlassPane);
+        }
+    }
+
+    // 2. Glass tank with water inside -- water seen through glass.
+    for (int dz = 0; dz < 4; ++dz) {
+        for (int dx = 0; dx < 4; ++dx) {
+            for (int dy = 0; dy < 3; ++dy) {
+                const bool shell = dx == 0 || dx == 3 || dz == 0 || dz == 3 || dy == 0;
+                world.SetBlock(ox + 6 + dx, gy + dy, oz + 6 + dz,
+                               shell ? blocks::Glass : blocks::Water);
+            }
+        }
+    }
+
+    // 3. Opaque pillar with coloured glass in front of and behind it.
+    for (int dy = 0; dy < 4; ++dy) {
+        world.SetBlock(ox + 11, gy + dy, oz + 5, blocks::Stone);
+        world.SetBlock(ox + 11, gy + dy, oz + 3, blocks::GlassBlue);
+        world.SetBlock(ox + 11, gy + dy, oz + 7, blocks::GlassRed);
+    }
+
+    // 4. Stained-glass window.
     for (int dy = 0; dy < 4; ++dy) {
         for (int dx = 0; dx < 6; ++dx) {
-            // A stained-glass window: clear border, red/blue centre.
             BlockId b = blocks::Glass;
             if (dy >= 1 && dy <= 2 && dx >= 1 && dx <= 4) {
                 b = (dx + dy) % 2 == 0 ? blocks::GlassRed : blocks::GlassBlue;
             }
-            world.SetBlock(baseX + dx, gy + dy, baseZ + 6, b);
-            world.SetBlock(baseX + dx, gy + dy, baseZ + 3, blocks::GlassPane);
+            world.SetBlock(ox + dx, gy + dy, oz, b);
         }
     }
 }
@@ -378,8 +410,8 @@ int main(int argc, char* argv[]) {
                 world.EnsureColumn(playerChunkX + dx, playerChunkZ + dz);
             }
         }
-        BuildShowcase(world, playerChunkX * voxelgame::ChunkSection::Size + 12,
-                      playerChunkZ * voxelgame::ChunkSection::Size - 6);
+        BuildChamberOfPanes(world, playerChunkX * voxelgame::ChunkSection::Size + 2,
+                            playerChunkZ * voxelgame::ChunkSection::Size - 13);
         for (const SectionKey& section : collectDirty(playerChunkX, playerChunkZ)) {
             meshSection(section[0], section[1], section[2]);
         }
@@ -388,8 +420,8 @@ int main(int argc, char* argv[]) {
         if (meshError) {
             result = 4;
         } else {
-            float yaw = 3.1415926F * 0.25F;
-            float pitch = 0.15F;
+            float yaw = 0.12F;  // face the chamber of panes
+            float pitch = 0.02F;
             bool mouseLook = !smokeWindow;
             int heldBlock = 2;  // stone
 
@@ -499,10 +531,11 @@ int main(int argc, char* argv[]) {
                                 static_cast<float>(GetScreenHeight()));
                 int drawnSections = 0;
 
-                // Only the sections in view, computed once for all three passes.
-                std::vector<const voxelgame::ChunkRenderMesh*> visible;
+                // Only the sections in view, computed once for all passes. Close
+                // blended sections are re-sorted per frame for correct compositing.
+                std::vector<voxelgame::ChunkRenderMesh*> visible;
                 std::vector<Vector3> visiblePos;
-                for (const auto& entry : meshes) {
+                for (auto& entry : meshes) {
                     const Vector3 origin{
                         static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size),
                         static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size),
@@ -511,6 +544,13 @@ int main(int argc, char* argv[]) {
                     if (!voxelgame::AabbInFrustum(frustum, origin,
                                                   {origin.x + s, origin.y + s, origin.z + s})) {
                         continue;
+                    }
+                    const float ddx = origin.x + s * 0.5F - camera.position.x;
+                    const float ddz = origin.z + s * 0.5F - camera.position.z;
+                    if (ddx * ddx + ddz * ddz < 44.0F * 44.0F) {
+                        entry.second.SortBlended({camera.position.x - origin.x,
+                                                  camera.position.y - origin.y,
+                                                  camera.position.z - origin.z});
                     }
                     visible.push_back(&entry.second);
                     visiblePos.push_back(origin);
