@@ -27,15 +27,23 @@ std::uint8_t ShadeChannel(const float shade) noexcept {
     return static_cast<std::uint8_t>(255.0F * shade);
 }
 
+// Two identical non-opaque blocks (glass-glass, water-water, leaves-leaves) hide
+// the shared face between them, like opaque neighbours do (PLAN.md 5.4).
+bool SameNonOpaque(const BlockId a, const BlockId b) noexcept {
+    return a == b && a != blocks::Air && BlockRenderLayer(a) != RenderLayer::Opaque;
+}
+
 struct MaskCell {
     bool present = false;
     bool positive = false;
     std::uint8_t tile = 0;
+    std::uint8_t layer = 0;  // RenderLayer
     float u0 = 0.0F;
     float v0 = 0.0F;
 
     [[nodiscard]] bool Matches(const MaskCell& other) const noexcept {
-        return present && other.present && positive == other.positive && tile == other.tile;
+        return present && other.present && positive == other.positive && tile == other.tile &&
+               layer == other.layer;
     }
 };
 
@@ -107,16 +115,18 @@ void AppendQuad(MeshData& mesh, const int axis, const int uAxis, const int vAxis
 }
 
 template <typename BlockAt>
-MeshData BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
+SectionMesh BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
     constexpr int N = ChunkSection::Size;
 
-    MeshData mesh;
-    mesh.vertices.reserve(ChunkSection::Volume);
-    mesh.normals.reserve(ChunkSection::Volume);
-    mesh.uvs.reserve(ChunkSection::Volume);
-    mesh.tileOrigins.reserve(ChunkSection::Volume);
-    mesh.colors.reserve(ChunkSection::Volume * 2);
-    mesh.indices.reserve(ChunkSection::Volume);
+    SectionMesh out;
+    for (MeshData& mesh : out.layers) {
+        mesh.vertices.reserve(ChunkSection::Volume);
+        mesh.normals.reserve(ChunkSection::Volume);
+        mesh.uvs.reserve(ChunkSection::Volume);
+        mesh.tileOrigins.reserve(ChunkSection::Volume);
+        mesh.colors.reserve(ChunkSection::Volume * 2);
+        mesh.indices.reserve(ChunkSection::Volume);
+    }
 
     std::array<MaskCell, static_cast<std::size_t>(N) * N> mask{};
 
@@ -137,19 +147,23 @@ MeshData BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
                     const BlockId hi = blockAt(coord[0], coord[1], coord[2]);
 
                     MaskCell cell;
-                    if (IsSolidBlock(lo) && !IsOccludingBlock(hi)) {
+                    if (IsSolidBlock(lo) && !IsOccludingBlock(hi) &&
+                        !SameNonOpaque(lo, hi)) {
                         cell.present = true;
                         cell.positive = true;
                         const int face = FaceIndex(axis, true);
                         cell.tile = binding.FaceTile(lo, face);
+                        cell.layer = static_cast<std::uint8_t>(BlockRenderLayer(lo));
                         const atlas::TileRect rect = binding.FaceRect(lo, face);
                         cell.u0 = rect.u0;
                         cell.v0 = rect.v0;
-                    } else if (IsSolidBlock(hi) && !IsOccludingBlock(lo)) {
+                    } else if (IsSolidBlock(hi) && !IsOccludingBlock(lo) &&
+                               !SameNonOpaque(hi, lo)) {
                         cell.present = true;
                         cell.positive = false;
                         const int face = FaceIndex(axis, false);
                         cell.tile = binding.FaceTile(hi, face);
+                        cell.layer = static_cast<std::uint8_t>(BlockRenderLayer(hi));
                         const atlas::TileRect rect = binding.FaceRect(hi, face);
                         cell.u0 = rect.u0;
                         cell.v0 = rect.v0;
@@ -185,7 +199,8 @@ MeshData BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
                         }
                     }
 
-                    AppendQuad(mesh, axis, uAxis, vAxis, slice + 1, i, j, w, h, start);
+                    AppendQuad(out.layers[start.layer], axis, uAxis, vAxis, slice + 1, i, j, w, h,
+                               start);
 
                     for (int l = 0; l < h; ++l) {
                         for (int k = 0; k < w; ++k) {
@@ -198,12 +213,12 @@ MeshData BuildMesh(const BlockAt& blockAt, const BlockAtlasBinding& binding) {
         }
     }
 
-    return mesh;
+    return out;
 }
 
 }  // namespace
 
-MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding& binding) const {
+SectionMesh ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding& binding) const {
     return BuildMesh(
         [&section](const int x, const int y, const int z) noexcept {
             return section.Get(x, y, z);
@@ -211,8 +226,8 @@ MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding
         binding);
 }
 
-MeshData ChunkMesher::Build(const World& world, const int chunkX, const int sectionY,
-                            const int chunkZ, const BlockAtlasBinding& binding) const {
+SectionMesh ChunkMesher::Build(const World& world, const int chunkX, const int sectionY,
+                               const int chunkZ, const BlockAtlasBinding& binding) const {
     const int baseX = chunkX * ChunkSection::Size;
     const int baseY = sectionY * ChunkSection::Size;
     const int baseZ = chunkZ * ChunkSection::Size;

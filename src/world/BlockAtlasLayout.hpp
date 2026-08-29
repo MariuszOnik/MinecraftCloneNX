@@ -33,6 +33,7 @@ enum Tile : std::uint8_t {
     Bedrock = 10,
     Leaves = 11,
     Glass = 12,
+    Water = 13,
 };
 
 // Normalised content rectangle of a tile within the atlas (inside its gutter).

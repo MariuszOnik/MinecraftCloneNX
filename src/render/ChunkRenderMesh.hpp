@@ -1,11 +1,14 @@
 #pragma once
 
-#include "world/MeshData.hpp"
+#include "world/Block.hpp"        // RenderLayer
+#include "world/ChunkMesher.hpp"  // SectionMesh
 
 #include <raylib.h>
 
 namespace voxelgame {
 
+// One section's GPU geometry, one model per render layer. Atlas and shader are
+// caller-owned; the render mesh only references them.
 class ChunkRenderMesh {
 public:
     ChunkRenderMesh() = default;
@@ -17,17 +20,16 @@ public:
     ChunkRenderMesh(ChunkRenderMesh&& other) noexcept;
     ChunkRenderMesh& operator=(ChunkRenderMesh&& other) noexcept;
 
-    // The atlas texture and shader stay owned by the caller; the render mesh only
-    // references them.
-    bool Upload(const MeshData& data, Texture2D atlas, Shader shader);
-    void Draw(Vector3 position) const;
-    [[nodiscard]] bool IsReady() const noexcept { return ready_; }
+    bool Upload(const SectionMesh& data, Texture2D atlas, Shader shader);
+    void DrawLayer(Vector3 position, RenderLayer layer) const;
+    [[nodiscard]] bool HasLayer(RenderLayer layer) const noexcept;
 
 private:
     void Unload() noexcept;
+    static void DropRefs(Model& model) noexcept;
 
-    Model model_{};
-    bool ready_ = false;
+    Model models_[3]{};
+    bool ready_[3]{};
 };
 
 }  // namespace voxelgame

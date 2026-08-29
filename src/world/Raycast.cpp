@@ -56,7 +56,7 @@ RaycastHit Raycast(const World& world, const Vec3 origin, Vec3 direction,
     float travelled = 0.0F;
 
     while (travelled <= maxDistance) {
-        if (IsSolidBlock(world.GetBlock(x, y, z))) {
+        if (IsCollidableBlock(world.GetBlock(x, y, z))) {
             return {true, x, y, z, normalX, normalY, normalZ};
         }
 

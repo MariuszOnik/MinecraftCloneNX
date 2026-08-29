@@ -16,6 +16,7 @@
 #include "world/World.hpp"
 
 #include <raylib.h>
+#include <rlgl.h>
 
 #include <algorithm>
 #include <array>
@@ -51,17 +52,46 @@ constexpr voxelgame::BlockId kPalette[] = {
 };
 constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
 
+int SurfaceY(const voxelgame::World& world, const int x, const int z) {
+    int y = world.BlocksY() - 1;
+    while (y > 0 && !voxelgame::IsCollidableBlock(world.GetBlock(x, y, z))) {
+        --y;
+    }
+    return y;
+}
+
 voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, const int chunkZ) {
     world.EnsureColumn(chunkX, chunkZ);
     const int x = chunkX * voxelgame::ChunkSection::Size + 8;
     const int z = chunkZ * voxelgame::ChunkSection::Size + 8;
-    int y = world.BlocksY() - 1;
-    while (y > 0 && !voxelgame::IsSolidBlock(world.GetBlock(x, y, z))) {
-        --y;
-    }
     // Drop in from a few blocks up so the first frames show the world.
-    return voxelgame::PlayerBody({static_cast<float>(x) + 0.5F, static_cast<float>(y + 4),
+    return voxelgame::PlayerBody({static_cast<float>(x) + 0.5F,
+                                  static_cast<float>(SurfaceY(world, x, z) + 4),
                                   static_cast<float>(z) + 0.5F});
+}
+
+// A temporary glass + water showcase near spawn so transparency is visible.
+// Slice 5 replaces this with the proper "chamber of panes" test scene.
+void BuildShowcase(voxelgame::World& world, const int baseX, const int baseZ) {
+    using namespace voxelgame;
+    const int gy = SurfaceY(world, baseX, baseZ) + 1;
+
+    // Sunken 4x4 water pool.
+    for (int dz = 0; dz < 4; ++dz) {
+        for (int dx = 0; dx < 4; ++dx) {
+            world.SetBlock(baseX + dx, gy - 1, baseZ + dz, blocks::Water);
+            world.SetBlock(baseX + dx, gy - 2, baseZ + dz, blocks::Water);
+            world.SetBlock(baseX + dx, gy - 3, baseZ + dz, blocks::Sand);
+        }
+    }
+    // A short glass wall beside it, a few panes deep.
+    for (int layer = 0; layer < 3; ++layer) {
+        for (int dy = 0; dy < 3; ++dy) {
+            for (int dx = 0; dx < 4; ++dx) {
+                world.SetBlock(baseX + dx, gy + dy, baseZ + 6 + layer * 2, blocks::Glass);
+            }
+        }
+    }
 }
 
 std::uint32_t SeedFromArgs(const int argc, char* argv[]) {
@@ -239,12 +269,12 @@ int main(int argc, char* argv[]) {
         // (Re)builds one section's GPU mesh; an emptied section drops its mesh.
         const auto meshSection = [&](const int cx, const int sy, const int cz) {
             const SectionKey key{cx, sy, cz};
-            const voxelgame::MeshData data = mesher.Build(world, cx, sy, cz, atlas.binding);
+            const voxelgame::SectionMesh data = mesher.Build(world, cx, sy, cz, atlas.binding);
             if (data.Empty()) {
                 meshes.erase(key);
                 sectionQuads.erase(key);
             } else if (meshes[key].Upload(data, blockAtlas, tilingShader)) {
-                sectionQuads[key] = data.quadCount;
+                sectionQuads[key] = data.QuadCount();
             } else {
                 meshError = true;
             }
@@ -332,6 +362,8 @@ int main(int argc, char* argv[]) {
                 world.EnsureColumn(playerChunkX + dx, playerChunkZ + dz);
             }
         }
+        BuildShowcase(world, playerChunkX * voxelgame::ChunkSection::Size + 12,
+                      playerChunkZ * voxelgame::ChunkSection::Size - 6);
         for (const SectionKey& section : collectDirty(playerChunkX, playerChunkZ)) {
             meshSection(section[0], section[1], section[2]);
         }
@@ -426,7 +458,7 @@ int main(int argc, char* argv[]) {
                     const int px = target.blockX + target.normalX;
                     const int py = target.blockY + target.normalY;
                     const int pz = target.blockZ + target.normalZ;
-                    if (!voxelgame::IsSolidBlock(world.GetBlock(px, py, pz)) &&
+                    if (!voxelgame::IsCollidableBlock(world.GetBlock(px, py, pz)) &&
                         !player.Intersects(px, py, pz)) {
                         worldChanged = world.SetBlock(px, py, pz, kPalette[heldBlock]);
                     }
@@ -451,19 +483,47 @@ int main(int argc, char* argv[]) {
                                 static_cast<float>(GetScreenHeight()));
                 int drawnSections = 0;
 
-                BeginMode3D(camera);
+                // Only the sections in view, computed once for all three passes.
+                std::vector<const voxelgame::ChunkRenderMesh*> visible;
+                std::vector<Vector3> visiblePos;
                 for (const auto& entry : meshes) {
-                    const float ox = static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size);
-                    const float oy = static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size);
-                    const float oz = static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size);
+                    const Vector3 origin{
+                        static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size),
+                        static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size),
+                        static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size)};
                     constexpr float s = static_cast<float>(voxelgame::ChunkSection::Size);
-                    if (!voxelgame::AabbInFrustum(frustum, {ox, oy, oz},
-                                                  {ox + s, oy + s, oz + s})) {
+                    if (!voxelgame::AabbInFrustum(frustum, origin,
+                                                  {origin.x + s, origin.y + s, origin.z + s})) {
                         continue;
                     }
-                    entry.second.Draw({ox, oy, oz});
-                    ++drawnSections;
+                    visible.push_back(&entry.second);
+                    visiblePos.push_back(origin);
                 }
+                drawnSections = static_cast<int>(visible.size());
+
+                BeginMode3D(camera);
+                // Pass 1: opaque.
+                voxelgame::SetTilingShaderAlphaCutoff(tilingShader, 0.0F);
+                for (std::size_t k = 0; k < visible.size(); ++k) {
+                    visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Opaque);
+                }
+                // Pass 2: cutout -- alpha-tested, still writes depth.
+                voxelgame::SetTilingShaderAlphaCutoff(tilingShader, 0.5F);
+                for (std::size_t k = 0; k < visible.size(); ++k) {
+                    visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Cutout);
+                }
+                // Pass 3: transparent -- blended, depth test on, depth write off.
+                voxelgame::SetTilingShaderAlphaCutoff(tilingShader, 0.0F);
+                rlDrawRenderBatchActive();
+                rlDisableDepthMask();
+                BeginBlendMode(BLEND_ALPHA);
+                for (std::size_t k = 0; k < visible.size(); ++k) {
+                    visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Transparent);
+                }
+                EndBlendMode();
+                rlDrawRenderBatchActive();
+                rlEnableDepthMask();
+
                 if (target.hit) {
                     const Vector3 centre{static_cast<float>(target.blockX) + 0.5F,
                                          static_cast<float>(target.blockY) + 0.5F,

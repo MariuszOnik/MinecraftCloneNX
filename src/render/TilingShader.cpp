@@ -30,10 +30,13 @@ varying vec4 fragColor;
 uniform sampler2D texture0;
 uniform vec4 colDiffuse;
 uniform vec2 tileExtent;
+uniform float alphaCutoff;
 void main() {
     vec2 local = fract(fragTexCoord);
     vec2 atlasUV = fragTileOrigin + local * tileExtent;
-    gl_FragColor = texture2D(texture0, atlasUV) * fragColor * colDiffuse;
+    vec4 texel = texture2D(texture0, atlasUV);
+    if (texel.a < alphaCutoff) discard;
+    gl_FragColor = texel * fragColor * colDiffuse;
 })";
 
 #else
@@ -61,11 +64,14 @@ in vec4 fragColor;
 uniform sampler2D texture0;
 uniform vec4 colDiffuse;
 uniform vec2 tileExtent;
+uniform float alphaCutoff;
 out vec4 finalColor;
 void main() {
     vec2 local = fract(fragTexCoord);
     vec2 atlasUV = fragTileOrigin + local * tileExtent;
-    finalColor = texture(texture0, atlasUV) * fragColor * colDiffuse;
+    vec4 texel = texture(texture0, atlasUV);
+    if (texel.a < alphaCutoff) discard;
+    finalColor = texel * fragColor * colDiffuse;
 })";
 
 #endif
@@ -84,6 +90,14 @@ void SetTilingShaderExtent(const Shader shader, const float extentU, const float
     }
     const float extent[2] = {extentU, extentV};
     SetShaderValue(shader, location, extent, SHADER_UNIFORM_VEC2);
+}
+
+void SetTilingShaderAlphaCutoff(const Shader shader, const float cutoff) {
+    const int location = GetShaderLocation(shader, "alphaCutoff");
+    if (location < 0) {
+        return;
+    }
+    SetShaderValue(shader, location, &cutoff, SHADER_UNIFORM_FLOAT);
 }
 
 }  // namespace voxelgame

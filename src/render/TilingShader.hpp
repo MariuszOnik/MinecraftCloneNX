@@ -14,4 +14,8 @@ namespace voxelgame {
 // after LoadTilingShader (and again only if the atlas changes).
 void SetTilingShaderExtent(Shader shader, float extentU, float extentV);
 
+// Fragments whose atlas texel alpha is below `cutoff` are discarded. Use 0 for
+// the opaque and blended passes, ~0.5 for the cutout (leaves) pass.
+void SetTilingShaderAlphaCutoff(Shader shader, float cutoff);
+
 }  // namespace voxelgame

@@ -44,7 +44,7 @@ bool PlayerBody::Collides(const World& world) const noexcept {
     for (int y = minY; y <= maxY; ++y) {
         for (int z = minZ; z <= maxZ; ++z) {
             for (int x = minX; x <= maxX; ++x) {
-                if (IsSolidBlock(world.GetBlock(x, y, z))) {
+                if (IsCollidableBlock(world.GetBlock(x, y, z))) {
                     return true;
                 }
             }

@@ -27,7 +27,8 @@ using BlockFaceTiles = std::array<std::uint8_t, 6>;
 
 struct BlockDefinition {
     std::string_view name;
-    bool solid;
+    bool solid;       // gets meshed (everything except air)
+    bool collidable;  // stops the player and blocks a raycast (false for water)
     RenderLayer layer;
     BlockColor color;
     BlockFaceTiles faceTiles;
@@ -46,13 +47,16 @@ inline constexpr BlockId Gravel = 8;
 inline constexpr BlockId Bedrock = 9;
 inline constexpr BlockId Leaves = 10;
 inline constexpr BlockId Glass = 11;
-inline constexpr BlockId Count = 12;
+inline constexpr BlockId Water = 12;
+inline constexpr BlockId Count = 13;
 }  // namespace blocks
 
 [[nodiscard]] const BlockDefinition& GetBlockDefinition(BlockId block) noexcept;
 [[nodiscard]] std::uint8_t GetBlockFaceTile(BlockId block, int faceIndex) noexcept;
 [[nodiscard]] bool IsKnownBlock(BlockId block) noexcept;
 [[nodiscard]] bool IsSolidBlock(BlockId block) noexcept;
+[[nodiscard]] bool IsCollidableBlock(BlockId block) noexcept;
 [[nodiscard]] bool IsOccludingBlock(BlockId block) noexcept;
+[[nodiscard]] RenderLayer BlockRenderLayer(BlockId block) noexcept;
 
 }  // namespace voxelgame

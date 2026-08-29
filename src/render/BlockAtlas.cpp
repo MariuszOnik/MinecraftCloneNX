@@ -37,6 +37,11 @@ Color Mix(const Color a, const Color b, const float t) noexcept {
     return Color{LerpByte(a.r, b.r, t), LerpByte(a.g, b.g, t), LerpByte(a.b, b.b, t), 255};
 }
 
+Color WithAlpha(Color c, const std::uint8_t alpha) noexcept {
+    c.a = alpha;
+    return c;
+}
+
 Color GrassTopPixel(const int px, const int py) noexcept {
     const Color dark{74, 118, 46, 255};
     const Color light{122, 170, 74, 255};
@@ -158,11 +163,15 @@ Color BedrockPixel(const int px, const int py) noexcept {
 }
 
 Color LeavesPixel(const int px, const int py) noexcept {
+    // Real holes: fully transparent pixels the cutout shader discards.
+    if (NoiseAt(px, py, 683U) > 0.82F || NoiseAt(px / 2, py, 684U) > 0.88F) {
+        return Color{0, 0, 0, 0};
+    }
     const Color dark{46, 92, 34, 255};
-    const Color light{88, 148, 60, 255};
+    const Color light{92, 152, 62, 255};
     Color c = Mix(dark, light, 0.5F * NoiseAt(px, py, 680U) + 0.4F * NoiseAt(px / 2, py / 2, 681U));
     if (NoiseAt(px, py, 682U) > 0.8F) {
-        c = Mix(c, Color{30, 62, 22, 255}, 0.8F);  // gaps read as deep shadow for now
+        c = Mix(c, Color{30, 62, 22, 255}, 0.7F);
     }
     return c;
 }
@@ -170,13 +179,23 @@ Color LeavesPixel(const int px, const int py) noexcept {
 Color GlassPixel(const int px, const int py) noexcept {
     const bool border = px == 0 || py == 0 || px == atlas::TileSize - 1 || py == atlas::TileSize - 1;
     if (border) {
-        return Color{176, 206, 218, 255};
+        return WithAlpha(Color{188, 214, 224, 255}, 190);  // visible frame
     }
-    Color c = Mix(Color{206, 230, 240, 255}, Color{226, 244, 250, 255}, NoiseAt(px, py, 690U));
-    if (px + py == 12 || px + py == 13) {  // faint highlight streak
-        c = Color{240, 250, 253, 255};
+    if (px + py == 5 || px + py == 6 || px + py == 22 || px + py == 23) {
+        return WithAlpha(Color{244, 251, 254, 255}, 165);  // diagonal glints
     }
-    return c;
+    Color c = Mix(Color{206, 230, 240, 255}, Color{224, 242, 249, 255}, NoiseAt(px, py, 690U));
+    return WithAlpha(c, 52);  // see-through body
+}
+
+Color WaterPixel(const int px, const int py) noexcept {
+    // Horizontal wave bands from layered noise.
+    const float wave = NoiseAt(px / 3, py, 700U) * 0.6F + NoiseAt(px, py / 5, 701U) * 0.4F;
+    Color c = Mix(Color{38, 96, 168, 255}, Color{74, 140, 206, 255}, wave);
+    if (wave > 0.78F) {
+        c = Mix(c, Color{150, 205, 236, 255}, 0.6F);  // crest highlight
+    }
+    return WithAlpha(c, 150);
 }
 
 Color PixelFor(const int tile, const int px, const int py) noexcept {
@@ -207,6 +226,8 @@ Color PixelFor(const int tile, const int px, const int py) noexcept {
             return LeavesPixel(px, py);
         case atlas::Tile::Glass:
             return GlassPixel(px, py);
+        case atlas::Tile::Water:
+            return WaterPixel(px, py);
         default:
             return Color{255, 0, 255, 255};
     }

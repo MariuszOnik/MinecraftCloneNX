@@ -28,6 +28,10 @@ void Expect(const bool condition, const std::string_view message) {
     }
 }
 
+const voxelgame::MeshData& Opaque(const voxelgame::SectionMesh& mesh) {
+    return mesh.Layer(voxelgame::RenderLayer::Opaque);
+}
+
 void ExpectMesh(const voxelgame::MeshData& mesh, const std::size_t expectedQuads) {
     Expect(mesh.quadCount == expectedQuads, "unexpected quad count");
     Expect(mesh.VertexCount() == expectedQuads * 4, "each quad must have four vertices");
@@ -97,14 +101,14 @@ int main() {
     Expect(section.IsDataDirty() && section.IsMeshDirty(), "block change sets dirty flags");
     Expect(!section.Set(1, 2, 3, blocks::Stone), "setting the same value is a no-op");
     Expect(section.NonAirBlockCount() == 1, "non-air count after one block");
-    ExpectMesh(mesher.Build(section, defaultAtlas), 6);
+    ExpectMesh(Opaque(mesher.Build(section, defaultAtlas)), 6);
 
     // A lone grass block: six faces, none mergeable. Each face samples the tile
     // the registry assigns to it, regardless of emission order.
     {
         ChunkSection lone;
         lone.Set(5, 5, 5, blocks::Grass);
-        const MeshData grass = mesher.Build(lone, defaultAtlas);
+        const MeshData grass = Opaque(mesher.Build(lone, defaultAtlas));
         ExpectMesh(grass, 6);
         ExpectFaceTile(grass, 0, 1, 0, atlas::TileRectOf(atlas::Tile::GrassTop),
                        "grass top face samples the grass-top tile");
@@ -123,19 +127,19 @@ int main() {
     // Greedy merge: a stone + dirt pair keeps 10 quads (different tiles never
     // merge), but two dirt blocks collapse their coplanar faces.
     Expect(section.Set(2, 2, 3, blocks::Dirt), "second adjacent block");
-    ExpectMesh(mesher.Build(section, defaultAtlas), 10);
+    ExpectMesh(Opaque(mesher.Build(section, defaultAtlas)), 10);
     {
         ChunkSection pair;
         pair.Set(1, 2, 3, blocks::Dirt);
         pair.Set(2, 2, 3, blocks::Dirt);
-        ExpectMesh(mesher.Build(pair, defaultAtlas), 6);  // 2 ends + merged top/bottom/front/back
+        ExpectMesh(Opaque(mesher.Build(pair, defaultAtlas)), 6);  // 2 ends + merged faces
     }
 
     // The headline greedy result: a solid section is six full-face quads.
     section.Fill(blocks::Stone);
     Expect(section.NonAirBlockCount() == ChunkSection::Volume, "filled section block count");
     {
-        const MeshData solid = mesher.Build(section, defaultAtlas);
+        const MeshData solid = Opaque(mesher.Build(section, defaultAtlas));
         ExpectMesh(solid, 6);
         // Every quad spans the whole 16x16 face.
         for (std::size_t q = 0; q < solid.quadCount; ++q) {
@@ -176,7 +180,7 @@ int main() {
 
             ChunkSection one;
             one.Set(0, 0, 0, blocks::Grass);
-            const MeshData mesh = mesher.Build(one, binding);
+            const MeshData mesh = Opaque(mesher.Build(one, binding));
             ExpectFaceTile(mesh, 0, 1, 0, binding.FaceRect(blocks::Grass, 2),
                            "descriptor: grass top face origin");
             ExpectFaceTile(mesh, 0, -1, 0, binding.FaceRect(blocks::Grass, 3),
@@ -246,7 +250,7 @@ int main() {
                 }
             }
         }
-        const MeshData left = mesher.Build(solid, 0, 0, 0, defaultAtlas);
+        const MeshData left = Opaque(mesher.Build(solid, 0, 0, 0, defaultAtlas));
         ExpectMesh(left, 5);  // +X face is culled by the neighbouring column
         for (std::size_t q = 0; q < left.quadCount; ++q) {
             Expect(!Near(QuadNormal(left, q)[0], 1.0F),
@@ -254,7 +258,34 @@ int main() {
         }
         ChunkSection lone;
         lone.Fill(blocks::Stone);
-        ExpectMesh(mesher.Build(lone, defaultAtlas), 6);  // isolation keeps all six faces
+        ExpectMesh(Opaque(mesher.Build(lone, defaultAtlas)), 6);  // isolation keeps six faces
+    }
+
+    // Render layers: leaves route to cutout, glass/water to transparent, and two
+    // identical non-opaque blocks hide the face between them.
+    {
+        ChunkSection s;
+        s.Set(4, 4, 4, blocks::Leaves);
+        s.Set(6, 4, 4, blocks::Glass);
+        const SectionMesh m = mesher.Build(s, defaultAtlas);
+        Expect(m.Layer(RenderLayer::Opaque).Empty(), "no opaque geometry here");
+        Expect(m.Layer(RenderLayer::Cutout).quadCount == 6, "leaves -> 6 cutout faces");
+        Expect(m.Layer(RenderLayer::Transparent).quadCount == 6, "glass -> 6 transparent faces");
+
+        // Two glass blocks: the shared face is culled and the four coplanar
+        // faces merge -> 6 quads, exactly like an opaque pair.
+        ChunkSection glassPair;
+        glassPair.Set(3, 3, 3, blocks::Glass);
+        glassPair.Set(4, 3, 3, blocks::Glass);
+        Expect(mesher.Build(glassPair, defaultAtlas).Layer(RenderLayer::Transparent).quadCount == 6,
+               "glass-glass hides the shared face");
+
+        // A glass block next to leaves (different non-opaque block) keeps its face.
+        ChunkSection glassLeaves;
+        glassLeaves.Set(3, 3, 3, blocks::Glass);
+        glassLeaves.Set(4, 3, 3, blocks::Leaves);
+        Expect(mesher.Build(glassLeaves, defaultAtlas).Layer(RenderLayer::Transparent).quadCount == 6,
+               "glass keeps its face against a different non-opaque neighbour");
     }
 
     // PlayerBody: gravity/landing, walls, jumping.
