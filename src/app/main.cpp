@@ -3,6 +3,7 @@
 #include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
 #include "render/ChunkRenderMesh.hpp"
+#include "render/Frustum.hpp"
 #include "render/TilingShader.hpp"
 #include "world/AtlasDescriptor.hpp"
 #include "world/Block.hpp"
@@ -445,11 +446,23 @@ int main(int argc, char* argv[]) {
                 BeginDrawing();
                 ClearBackground(Color{18, 22, 31, 255});
 
+                const voxelgame::Frustum frustum = voxelgame::MakeFrustum(
+                    camera, static_cast<float>(GetScreenWidth()) /
+                                static_cast<float>(GetScreenHeight()));
+                int drawnSections = 0;
+
                 BeginMode3D(camera);
                 for (const auto& entry : meshes) {
-                    entry.second.Draw({static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size),
-                                       static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size),
-                                       static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size)});
+                    const float ox = static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size);
+                    const float oy = static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size);
+                    const float oz = static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size);
+                    constexpr float s = static_cast<float>(voxelgame::ChunkSection::Size);
+                    if (!voxelgame::AabbInFrustum(frustum, {ox, oy, oz},
+                                                  {ox + s, oy + s, oz + s})) {
+                        continue;
+                    }
+                    entry.second.Draw({ox, oy, oz});
+                    ++drawnSections;
                 }
                 if (target.hit) {
                     const Vector3 centre{static_cast<float>(target.blockX) + 0.5F,
@@ -468,9 +481,9 @@ int main(int argc, char* argv[]) {
                                     static_cast<int>(voxelgame::ShortCommit(build.commit).size()),
                                     voxelgame::ShortCommit(build.commit).data()),
                          24, 76, 18, LIGHTGRAY);
-                DrawText(TextFormat("Seed: 0x%X  Chunk: %i,%i  Columns: %i  Meshes: %i",
+                DrawText(TextFormat("Seed: 0x%X  Chunk: %i,%i  Columns: %i  Drawn: %i/%i",
                                     static_cast<unsigned>(seed), playerChunkX, playerChunkZ,
-                                    static_cast<int>(world.LoadedColumnCount()),
+                                    static_cast<int>(world.LoadedColumnCount()), drawnSections,
                                     static_cast<int>(meshes.size())),
                          24, 104, 18, LIGHTGRAY);
                 DrawText(TextFormat("Quads: %i  Tris: %i  Stream: %.2f ms  Rebuilds: %i",

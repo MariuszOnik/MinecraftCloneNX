@@ -61,6 +61,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch" AND TARGET raylib)
     target_compile_definitions(raylib PRIVATE NX_DISABLE_GAMEPAD_EMULATION)
 endif()
 
+# Treat raylib's headers as system headers so raymath.h's compound literals do
+# not trip our -Wextra / -Wmissing-field-initializers.
+if(TARGET raylib)
+    get_target_property(_raylib_includes raylib INTERFACE_INCLUDE_DIRECTORIES)
+    if(_raylib_includes)
+        set_target_properties(raylib PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_raylib_includes}")
+    endif()
+endif()
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_config.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/voxelgame/build_config.hpp"
@@ -101,6 +111,7 @@ target_include_directories(voxelgame_world SYSTEM PRIVATE
 add_library(voxelgame_render STATIC
     src/render/BlockAtlas.cpp
     src/render/ChunkRenderMesh.cpp
+    src/render/Frustum.cpp
     src/render/TilingShader.cpp
 )
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
