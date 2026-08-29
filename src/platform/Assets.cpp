@@ -6,6 +6,7 @@ namespace voxelgame {
 namespace {
 
 constexpr std::string_view kSdCardRoot = "sdmc:/switch/voxelgame/assets/";
+constexpr std::string_view kSdCardWritableRoot = "sdmc:/switch/voxelgame/";
 constexpr std::string_view kRomfsRoot = "romfs:/assets/";
 
 bool FileExists(const std::string& path) {
@@ -27,6 +28,14 @@ AssetPaths::AssetPaths(const std::string_view desktopRoot) : desktopRoot_(deskto
 
 std::string_view AssetPaths::SdCardRoot() noexcept {
     return kSdCardRoot;
+}
+
+std::string AssetPaths::WritablePath(const std::string_view name) const {
+#if defined(__SWITCH__)
+    return Join(kSdCardWritableRoot, name);
+#else
+    return Join(desktopRoot_, name);
+#endif
 }
 
 AssetPaths::Resolved AssetPaths::Resolve(const std::string_view relative) const {

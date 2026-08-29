@@ -34,6 +34,10 @@ public:
 
     [[nodiscard]] Resolved Resolve(std::string_view relative) const;
 
+    // Writable path for the single world save: sdmc:/switch/voxelgame/<name> on
+    // Switch, next to the executable on desktop.
+    [[nodiscard]] std::string WritablePath(std::string_view name) const;
+
     // Location the SD-card assets are expected at, for diagnostics.
     [[nodiscard]] static std::string_view SdCardRoot() noexcept;
 

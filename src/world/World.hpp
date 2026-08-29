@@ -31,9 +31,23 @@ public:
     [[nodiscard]] static constexpr int ToLocal(int block) noexcept { return block & 15; }
 
     // World-block access. Reads outside the vertical range or in an unloaded
-    // column return Air; writes there are rejected.
+    // column return Air; writes there are rejected. Writes outside the generator
+    // filler are journalled so they survive a column unload/reload and can be
+    // saved.
     [[nodiscard]] BlockId GetBlock(int x, int y, int z) const noexcept;
     bool SetBlock(int x, int y, int z, BlockId block) noexcept;
+
+    // Player edits (world-block coords) that differ from the generator, for the
+    // save file. Re-applied automatically whenever a column loads.
+    using EditMap = std::unordered_map<std::int64_t, BlockId>;
+    [[nodiscard]] const EditMap& Edits() const noexcept { return edits_; }
+    void AddEdit(int x, int y, int z, BlockId block);  // used when loading a save
+
+    // Toggles edit journalling. Turn it off around bulk world setup (e.g. a debug
+    // scene) whose blocks should not be persisted as player edits.
+    void SetJournalling(bool on) noexcept { journalling_ = on; }
+    [[nodiscard]] static std::int64_t BlockKey(int x, int y, int z) noexcept;
+    static void DecodeKey(std::int64_t key, int& x, int& y, int& z) noexcept;
 
     [[nodiscard]] bool IsColumnLoaded(int chunkX, int chunkZ) const noexcept;
     // Loads and fills the column if absent; returns true when newly loaded.
@@ -67,9 +81,13 @@ private:
     [[nodiscard]] const Column* Find(int chunkX, int chunkZ) const noexcept;
     [[nodiscard]] Column* Find(int chunkX, int chunkZ) noexcept;
 
+    void ApplyEditsInColumn(int chunkX, int chunkZ);
+
     int sectionsY_;
     ColumnFiller filler_;
     std::unordered_map<std::int64_t, Column> columns_;
+    EditMap edits_;
+    bool journalling_ = true;  // false while the generator filler runs
 };
 
 }  // namespace voxelgame

@@ -54,6 +54,7 @@ FrameInput PollFrameInput(const bool mouseLook) {
     input.toggleMouseLook = IsKeyPressed(KEY_TAB);
     input.breakBlock = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     input.placeBlock = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    input.saveRequested = IsKeyPressed(KEY_F5);
     input.cycleBlock = static_cast<int>(GetMouseWheelMove());
     if (IsKeyPressed(KEY_Q)) {
         --input.cycleBlock;
@@ -86,9 +87,15 @@ FrameInput PollFrameInput(const bool mouseLook) {
                            ApplyDeadzone(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y)) *
                            kStickLookSpeed * dt;
 
+        // L1 + A is the save shortcut; swallow the jump/sprint it would also fire.
+        const bool l1Held = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
+        if (l1Held && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) {
+            input.saveRequested = true;
+        }
+
         input.jump = input.jump || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ||
-                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
-        input.sprint = input.sprint || IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
+                     (!l1Held && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT));
+        input.sprint = input.sprint || l1Held;
         input.toggleMouseLook =
             input.toggleMouseLook || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
         input.breakBlock =

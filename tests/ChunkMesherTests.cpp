@@ -8,10 +8,12 @@
 #include "world/Raycast.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
+#include "world/WorldSave.hpp"
 
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -236,6 +238,83 @@ int main() {
         Expect(!world.IsColumnLoaded(0, 0), "column unloaded");
         Expect(world.LoadedColumnCount() == before - 1, "loaded count drops on unload");
         Expect(world.GetBlock(5, 5, 5) == blocks::Air, "unloaded blocks read as air");
+    }
+
+    // Edit journal: a player edit survives its column being streamed out and back,
+    // and only edits (not generated blocks) are journalled.
+    {
+        int generated = 0;
+        World world(1, [&generated](World& w, int cx, int cz) {
+            w.SetBlock(cx * 16 + 1, 0, cz * 16 + 1, blocks::Stone);
+            ++generated;
+        });
+        world.EnsureColumn(0, 0);
+        Expect(world.Edits().empty(), "generator blocks are not journalled");
+
+        Expect(world.SetBlock(2, 3, 4, blocks::Planks), "player edit");
+        Expect(world.Edits().size() == 1, "player edit is journalled");
+
+        world.UnloadColumn(0, 0);
+        Expect(world.GetBlock(2, 3, 4) == blocks::Air, "edit gone while column unloaded");
+        world.EnsureColumn(0, 0);
+        Expect(world.GetBlock(2, 3, 4) == blocks::Planks, "edit re-applied on reload");
+        Expect(world.GetBlock(1, 0, 1) == blocks::Stone, "generator still runs on reload");
+
+        // A key round-trips through encode/decode.
+        int kx = 0;
+        int ky = 0;
+        int kz = 0;
+        World::DecodeKey(World::BlockKey(-70, 9, 130), kx, ky, kz);
+        Expect(kx == -70 && ky == 9 && kz == 130, "block key round-trips");
+
+        // AddEdit before the column exists still lands once it loads.
+        World fresh(1);
+        fresh.AddEdit(20, 5, 20, blocks::Sand);
+        fresh.EnsureColumn(1, 1);
+        Expect(fresh.GetBlock(20, 5, 20) == blocks::Sand, "AddEdit applies on later column load");
+    }
+
+    // WorldSave: binary round-trip and rejection of a bad file.
+    {
+        const std::string path = "voxelgame-test-save.dat";
+        std::remove(path.c_str());
+
+        WorldSave out;
+        out.seed = 0xABCDEF01U;
+        out.playerX = 12.5F;
+        out.playerY = -3.25F;
+        out.playerZ = 800.0F;
+        out.yaw = 1.5F;
+        out.pitch = -0.75F;
+        out.edits.push_back({1, 2, 3, blocks::Stone});
+        out.edits.push_back({-40, 11, 260, blocks::GlassBlue});
+        Expect(SaveWorld(path, out), "save writes");
+
+        const std::optional<WorldSave> back = LoadWorld(path);
+        Expect(back.has_value(), "save reloads");
+        if (back) {
+            Expect(back->seed == out.seed, "seed round-trips");
+            Expect(Near(back->playerX, out.playerX) && Near(back->playerY, out.playerY) &&
+                       Near(back->playerZ, out.playerZ),
+                   "player position round-trips");
+            Expect(Near(back->yaw, out.yaw) && Near(back->pitch, out.pitch),
+                   "orientation round-trips");
+            Expect(back->edits.size() == 2, "edit count round-trips");
+            Expect(back->edits[1].x == -40 && back->edits[1].z == 260 &&
+                       back->edits[1].block == blocks::GlassBlue,
+                   "edit payload round-trips");
+        }
+
+        Expect(!LoadWorld("voxelgame-nonexistent-save.dat").has_value(),
+               "missing save is nullopt");
+
+        std::FILE* junk = std::fopen(path.c_str(), "wb");
+        if (junk) {
+            std::fputs("not a save", junk);
+            std::fclose(junk);
+        }
+        Expect(!LoadWorld(path).has_value(), "corrupt save is rejected");
+        std::remove(path.c_str());
     }
 
     // Cross-column meshing: a shared face between two solid columns is culled.

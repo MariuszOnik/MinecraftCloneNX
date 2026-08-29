@@ -14,6 +14,7 @@
 #include "world/Raycast.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
+#include "world/WorldSave.hpp"
 
 #include <raylib.h>
 #include <rlgl.h>
@@ -148,6 +149,15 @@ std::uint32_t SeedFromArgs(const int argc, char* argv[]) {
         }
     }
     return kDefaultSeed;
+}
+
+bool HasSeedArg(const int argc, char* argv[]) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::strcmp(argv[index], "--seed") == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool HasArgument(const int argc, char* argv[], const char* expected) {
@@ -293,7 +303,18 @@ int main(int argc, char* argv[]) {
     voxelgame::SetTilingShaderExtent(tilingShader, atlas.binding.TileExtentU(),
                                      atlas.binding.TileExtentV());
 
-    const std::uint32_t seed = SeedFromArgs(argc, argv);
+    // One save slot. A fresh world is generated when the player passes an explicit
+    // --seed or when no save exists yet; otherwise the save's seed and edits win.
+    const std::string savePath = assets.WritablePath("voxelgame-save.dat");
+    std::optional<voxelgame::WorldSave> loadedSave;
+    if (!HasSeedArg(argc, argv)) {
+        loadedSave = voxelgame::LoadWorld(savePath);
+        if (loadedSave) {
+            TraceLog(LOG_INFO, "VOXEL: loaded save '%s' (seed 0x%X, %zu edits)", savePath.c_str(),
+                     static_cast<unsigned>(loadedSave->seed), loadedSave->edits.size());
+        }
+    }
+    const std::uint32_t seed = loadedSave ? loadedSave->seed : SeedFromArgs(argc, argv);
 
     int result = 0;
     {
@@ -303,6 +324,13 @@ int main(int argc, char* argv[]) {
                                    generator.FillColumn(w, cx, cz);
                                });
         voxelgame::ChunkMesher mesher;
+
+        // Replay the saved player edits: stored now, re-applied as each column loads.
+        if (loadedSave) {
+            for (const voxelgame::BlockEdit& edit : loadedSave->edits) {
+                world.AddEdit(edit.x, edit.y, edit.z, edit.block);
+            }
+        }
 
         using SectionKey = std::array<int, 3>;  // {chunkX, sectionY, chunkZ}
         std::map<SectionKey, voxelgame::ChunkRenderMesh> meshes;
@@ -401,6 +429,10 @@ int main(int argc, char* argv[]) {
         };
 
         voxelgame::PlayerBody player = SpawnPlayer(world, 0, 0, diveSpawn);
+        if (loadedSave) {
+            player = voxelgame::PlayerBody(
+                {loadedSave->playerX, loadedSave->playerY, loadedSave->playerZ});
+        }
         int playerChunkX = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().x)));
         int playerChunkZ = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().z)));
 
@@ -410,8 +442,14 @@ int main(int argc, char* argv[]) {
                 world.EnsureColumn(playerChunkX + dx, playerChunkZ + dz);
             }
         }
-        BuildChamberOfPanes(world, playerChunkX * voxelgame::ChunkSection::Size + 2,
-                            playerChunkZ * voxelgame::ChunkSection::Size - 13);
+        // The debug chamber is only for a fresh world; its blocks must not be
+        // journalled as player edits (they would bloat and pollute the save).
+        if (!loadedSave) {
+            world.SetJournalling(false);
+            BuildChamberOfPanes(world, playerChunkX * voxelgame::ChunkSection::Size + 2,
+                                playerChunkZ * voxelgame::ChunkSection::Size - 13);
+            world.SetJournalling(true);
+        }
         for (const SectionKey& section : collectDirty(playerChunkX, playerChunkZ)) {
             meshSection(section[0], section[1], section[2]);
         }
@@ -420,10 +458,37 @@ int main(int argc, char* argv[]) {
         if (meshError) {
             result = 4;
         } else {
-            float yaw = 0.12F;  // face the chamber of panes
-            float pitch = 0.02F;
+            float yaw = loadedSave ? loadedSave->yaw : 0.12F;  // face the chamber of panes
+            float pitch = loadedSave ? loadedSave->pitch : 0.02F;
             bool mouseLook = !smokeWindow;
             int heldBlock = 2;  // stone
+            double saveFlashUntil = 0.0;  // GetTime() until the "Saved" HUD note clears
+
+            const auto captureSave = [&]() {
+                voxelgame::WorldSave snapshot;
+                snapshot.seed = seed;
+                const voxelgame::Vec3 pos = player.Position();
+                snapshot.playerX = pos.x;
+                snapshot.playerY = pos.y;
+                snapshot.playerZ = pos.z;
+                snapshot.yaw = yaw;
+                snapshot.pitch = pitch;
+                snapshot.edits.reserve(world.Edits().size());
+                for (const auto& [key, block] : world.Edits()) {
+                    int ex = 0;
+                    int ey = 0;
+                    int ez = 0;
+                    voxelgame::World::DecodeKey(key, ex, ey, ez);
+                    snapshot.edits.push_back({ex, ey, ez, block});
+                }
+                return snapshot;
+            };
+            const auto writeSave = [&]() {
+                const bool ok = voxelgame::SaveWorld(savePath, captureSave());
+                TraceLog(ok ? LOG_INFO : LOG_WARNING, "VOXEL: save '%s' %s", savePath.c_str(),
+                         ok ? "written" : "FAILED");
+                return ok;
+            };
 
             Camera3D camera{};
             camera.up = {0.0F, 1.0F, 0.0F};
@@ -486,6 +551,10 @@ int main(int argc, char* argv[]) {
                 if (meshError) {
                     result = 5;
                     break;
+                }
+
+                if (in.saveRequested && writeSave()) {
+                    saveFlashUntil = GetTime() + 2.0;
                 }
 
                 if (in.cycleBlock != 0) {
@@ -653,8 +722,12 @@ int main(int argc, char* argv[]) {
                                         voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.size()),
                                     voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.data()),
                          24, 192, 18, target.hit ? LIME : LIGHTGRAY);
-                DrawText("WASD/stick move  Space/A jump  LMB/ZR break  RMB/ZL place  Tab mouse",
+                DrawText("WASD/stick move  Space/A jump  ZR break  ZL place  Tab mouse  F5/L1+A save",
                          24, 214, 15, GRAY);
+
+                if (GetTime() < saveFlashUntil) {
+                    DrawText("Saved", GetScreenWidth() - 96, 24, 24, Color{120, 255, 140, 255});
+                }
 
                 {
                     const int cx = GetScreenWidth() / 2;
@@ -671,6 +744,11 @@ int main(int argc, char* argv[]) {
                 if (smokeWindow && renderedFrames >= 3) {
                     break;
                 }
+            }
+
+            // Autosave on a clean exit so quitting never loses progress.
+            if (!smokeWindow && result == 0) {
+                writeSave();
             }
         }
     }
