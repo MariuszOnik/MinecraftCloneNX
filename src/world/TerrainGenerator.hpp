@@ -13,8 +13,10 @@ class TerrainGenerator {
 public:
     explicit TerrainGenerator(std::uint32_t seed) noexcept;
 
-    // Fills every column of `world` with generated terrain and trees.
-    void Generate(World& world) const;
+    // Fills one 16x16 column (chunkX, chunkZ) with terrain and any trees rooted
+    // in it (leaves spilling into unloaded neighbours are clipped). Suitable as a
+    // World column filler.
+    void FillColumn(World& world, int chunkX, int chunkZ) const;
 
     // World Y of the topmost solid block in the column (x, z).
     [[nodiscard]] int SurfaceHeight(int worldX, int worldZ) const noexcept;

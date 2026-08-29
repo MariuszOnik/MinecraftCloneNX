@@ -17,6 +17,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <chrono>
@@ -24,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -31,10 +33,14 @@
 
 namespace {
 
-constexpr int kWorldSectionsX = 5;
 constexpr int kWorldSectionsY = 2;
-constexpr int kWorldSectionsZ = 5;
 constexpr std::uint32_t kDefaultSeed = 0xC0FFEEU;
+
+// Streaming radii, in chunk columns, measured with Chebyshev distance.
+constexpr int kLoadRadius = 5;
+constexpr int kKeepRadius = 7;
+constexpr int kColumnBudget = 2;      // new columns generated per frame
+constexpr double kMeshBudgetMs = 4.0;  // time spent (re)meshing per frame
 
 constexpr float kReach = 5.0F;
 constexpr voxelgame::BlockId kPalette[] = {
@@ -44,15 +50,10 @@ constexpr voxelgame::BlockId kPalette[] = {
 };
 constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
 
-voxelgame::World CreateWorld(const std::uint32_t seed) {
-    voxelgame::World world(kWorldSectionsX, kWorldSectionsY, kWorldSectionsZ);
-    voxelgame::TerrainGenerator(seed).Generate(world);
-    return world;
-}
-
-voxelgame::PlayerBody SpawnPlayer(const voxelgame::World& world) {
-    const int x = world.BlocksX() / 2;
-    const int z = world.BlocksZ() / 2;
+voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, const int chunkZ) {
+    world.EnsureColumn(chunkX, chunkZ);
+    const int x = chunkX * voxelgame::ChunkSection::Size + 8;
+    const int z = chunkZ * voxelgame::ChunkSection::Size + 8;
     int y = world.BlocksY() - 1;
     while (y > 0 && !voxelgame::IsSolidBlock(world.GetBlock(x, y, z))) {
         --y;
@@ -217,58 +218,127 @@ int main(int argc, char* argv[]) {
 
     int result = 0;
     {
-        voxelgame::World world = CreateWorld(seed);
+        const voxelgame::TerrainGenerator generator(seed);
+        voxelgame::World world(kWorldSectionsY,
+                               [&generator](voxelgame::World& w, int cx, int cz) {
+                                   generator.FillColumn(w, cx, cz);
+                               });
         voxelgame::ChunkMesher mesher;
-        std::vector<voxelgame::ChunkRenderMesh> meshes(
-            static_cast<std::size_t>(world.SectionCount()));
-        std::vector<std::size_t> sectionQuads(static_cast<std::size_t>(world.SectionCount()), 0);
+
+        using SectionKey = std::array<int, 3>;  // {chunkX, sectionY, chunkZ}
+        std::map<SectionKey, voxelgame::ChunkRenderMesh> meshes;
+        std::map<SectionKey, std::size_t> sectionQuads;
 
         std::size_t quadTotal = 0;
         std::size_t triangleTotal = 0;
         double meshMilliseconds = 0.0;
         int meshRebuilds = 0;
+        bool meshError = false;
 
-        const auto sectionIndex = [&](const int sx, const int sy, const int sz) {
-            return static_cast<std::size_t>((sy * world.SectionsZ() + sz) * world.SectionsX() + sx);
+        // (Re)builds one section's GPU mesh; an emptied section drops its mesh.
+        const auto meshSection = [&](const int cx, const int sy, const int cz) {
+            const SectionKey key{cx, sy, cz};
+            const voxelgame::MeshData data = mesher.Build(world, cx, sy, cz, atlas.binding);
+            if (data.Empty()) {
+                meshes.erase(key);
+                sectionQuads.erase(key);
+            } else if (meshes[key].Upload(data, blockAtlas, tilingShader)) {
+                sectionQuads[key] = data.quadCount;
+            } else {
+                meshError = true;
+            }
+            world.MarkSectionMeshClean(cx, sy, cz);
+            ++meshRebuilds;
         };
 
-        // Remeshes every section flagged dirty; returns false only on GPU error.
-        const auto rebuildDirty = [&]() {
-            const auto start = std::chrono::steady_clock::now();
-            for (int sy = 0; sy < world.SectionsY(); ++sy) {
-                for (int sz = 0; sz < world.SectionsZ(); ++sz) {
-                    for (int sx = 0; sx < world.SectionsX(); ++sx) {
-                        if (!world.SectionMeshDirty(sx, sy, sz)) {
+        const auto collectDirty = [&](const int pcx, const int pcz) {
+            std::vector<SectionKey> dirty;
+            world.ForEachLoadedSection([&](int cx, int sy, int cz) {
+                if (world.SectionMeshDirty(cx, sy, cz)) {
+                    dirty.push_back({cx, sy, cz});
+                }
+            });
+            std::sort(dirty.begin(), dirty.end(), [&](const SectionKey& a, const SectionKey& b) {
+                const int da = std::max(std::abs(a[0] - pcx), std::abs(a[2] - pcz));
+                const int db = std::max(std::abs(b[0] - pcx), std::abs(b[2] - pcz));
+                return da < db;
+            });
+            return dirty;
+        };
+
+        const auto refreshTotals = [&]() {
+            quadTotal = 0;
+            for (const auto& entry : sectionQuads) {
+                quadTotal += entry.second;
+            }
+            triangleTotal = quadTotal * 2;
+        };
+
+        // Loads the ring around (pcx, pcz) up to a column budget, unloads columns
+        // past the keep radius, and remeshes dirty sections within a time budget.
+        const auto stream = [&](const int pcx, const int pcz, const int columnBudget,
+                                const double meshBudgetMs) {
+            int loads = 0;
+            for (int r = 0; r <= kLoadRadius && loads < columnBudget; ++r) {
+                for (int dz = -r; dz <= r && loads < columnBudget; ++dz) {
+                    for (int dx = -r; dx <= r && loads < columnBudget; ++dx) {
+                        if (std::max(std::abs(dx), std::abs(dz)) != r) {
                             continue;
                         }
-                        const std::size_t index = sectionIndex(sx, sy, sz);
-                        const voxelgame::MeshData data =
-                            mesher.Build(world, sx, sy, sz, atlas.binding);
-                        if (!meshes[index].Upload(data, blockAtlas, tilingShader)) {
-                            return false;
+                        if (world.EnsureColumn(pcx + dx, pcz + dz)) {
+                            ++loads;
                         }
-                        sectionQuads[index] = data.quadCount;
-                        world.MarkSectionMeshClean(sx, sy, sz);
-                        ++meshRebuilds;
                     }
                 }
             }
-            meshMilliseconds =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
-                    .count();
 
-            quadTotal = 0;
-            for (const std::size_t count : sectionQuads) {
-                quadTotal += count;
+            std::vector<std::array<int, 2>> tooFar;
+            world.ForEachLoadedColumn([&](int cx, int cz) {
+                if (std::max(std::abs(cx - pcx), std::abs(cz - pcz)) > kKeepRadius) {
+                    tooFar.push_back({cx, cz});
+                }
+            });
+            for (const auto& column : tooFar) {
+                world.UnloadColumn(column[0], column[1]);
+                for (int sy = 0; sy < world.SectionsY(); ++sy) {
+                    meshes.erase({column[0], sy, column[1]});
+                    sectionQuads.erase({column[0], sy, column[1]});
+                }
             }
-            triangleTotal = quadTotal * 2;
-            return true;
+
+            const auto meshStart = std::chrono::steady_clock::now();
+            const std::vector<SectionKey> dirty = collectDirty(pcx, pcz);
+            meshMilliseconds = 0.0;
+            for (const SectionKey& section : dirty) {
+                meshSection(section[0], section[1], section[2]);
+                meshMilliseconds = std::chrono::duration<double, std::milli>(
+                                       std::chrono::steady_clock::now() - meshStart)
+                                       .count();
+                if (meshMilliseconds > meshBudgetMs) {
+                    break;
+                }
+            }
+            refreshTotals();
         };
 
-        if (!rebuildDirty()) {
+        voxelgame::PlayerBody player = SpawnPlayer(world, 0, 0);
+        int playerChunkX = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().x)));
+        int playerChunkZ = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().z)));
+
+        // Fill and mesh a small spawn area synchronously; the rest streams in.
+        for (int dz = -2; dz <= 2; ++dz) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                world.EnsureColumn(playerChunkX + dx, playerChunkZ + dz);
+            }
+        }
+        for (const SectionKey& section : collectDirty(playerChunkX, playerChunkZ)) {
+            meshSection(section[0], section[1], section[2]);
+        }
+        refreshTotals();
+
+        if (meshError) {
             result = 4;
         } else {
-            voxelgame::PlayerBody player = SpawnPlayer(world);
             float yaw = 3.1415926F * 0.25F;
             float pitch = 0.15F;
             bool mouseLook = !smokeWindow;
@@ -327,6 +397,16 @@ int main(int argc, char* argv[]) {
                 camera.position = {eye.x, eye.y, eye.z};
                 camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
 
+                playerChunkX =
+                    voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().x)));
+                playerChunkZ =
+                    voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().z)));
+                stream(playerChunkX, playerChunkZ, kColumnBudget, kMeshBudgetMs);
+                if (meshError) {
+                    result = 5;
+                    break;
+                }
+
                 if (in.cycleBlock != 0) {
                     heldBlock = ((heldBlock + in.cycleBlock) % kPaletteCount + kPaletteCount) %
                                 kPaletteCount;
@@ -350,31 +430,27 @@ int main(int argc, char* argv[]) {
                         worldChanged = world.SetBlock(px, py, pz, kPalette[heldBlock]);
                     }
                 }
-                if (worldChanged && !rebuildDirty()) {
-                    result = 5;
-                    break;
+                if (worldChanged) {
+                    // Edits must feel instant -- mesh what this change dirtied now.
+                    for (const SectionKey& section : collectDirty(playerChunkX, playerChunkZ)) {
+                        meshSection(section[0], section[1], section[2]);
+                    }
+                    refreshTotals();
+                    if (meshError) {
+                        result = 5;
+                        break;
+                    }
                 }
 
                 BeginDrawing();
                 ClearBackground(Color{18, 22, 31, 255});
 
                 BeginMode3D(camera);
-                DrawGrid(64, 1.0F);
-                for (int sy = 0; sy < world.SectionsY(); ++sy) {
-                    for (int sz = 0; sz < world.SectionsZ(); ++sz) {
-                        for (int sx = 0; sx < world.SectionsX(); ++sx) {
-                            meshes[sectionIndex(sx, sy, sz)].Draw(
-                                {static_cast<float>(sx * voxelgame::ChunkSection::Size),
-                                 static_cast<float>(sy * voxelgame::ChunkSection::Size),
-                                 static_cast<float>(sz * voxelgame::ChunkSection::Size)});
-                        }
-                    }
+                for (const auto& entry : meshes) {
+                    entry.second.Draw({static_cast<float>(entry.first[0] * voxelgame::ChunkSection::Size),
+                                       static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size),
+                                       static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size)});
                 }
-                DrawBoundingBox({{0.0F, 0.0F, 0.0F},
-                                 {static_cast<float>(world.BlocksX()),
-                                  static_cast<float>(world.BlocksY()),
-                                  static_cast<float>(world.BlocksZ())}},
-                                Fade(SKYBLUE, 0.35F));
                 if (target.hit) {
                     const Vector3 centre{static_cast<float>(target.blockX) + 0.5F,
                                          static_cast<float>(target.blockY) + 0.5F,
@@ -392,13 +468,14 @@ int main(int argc, char* argv[]) {
                                     static_cast<int>(voxelgame::ShortCommit(build.commit).size()),
                                     voxelgame::ShortCommit(build.commit).data()),
                          24, 76, 18, LIGHTGRAY);
-                DrawText(TextFormat("Seed: 0x%X  Sections: %i  Blocks: %i",
-                                    static_cast<unsigned>(seed), world.SectionCount(),
-                                    static_cast<int>(world.NonAirBlockCount())),
+                DrawText(TextFormat("Seed: 0x%X  Chunk: %i,%i  Columns: %i  Meshes: %i",
+                                    static_cast<unsigned>(seed), playerChunkX, playerChunkZ,
+                                    static_cast<int>(world.LoadedColumnCount()),
+                                    static_cast<int>(meshes.size())),
                          24, 104, 18, LIGHTGRAY);
-                DrawText(TextFormat("Quads: %i  Tris: %i  Mesh: %.2f ms",
+                DrawText(TextFormat("Quads: %i  Tris: %i  Stream: %.2f ms  Rebuilds: %i",
                                     static_cast<int>(quadTotal), static_cast<int>(triangleTotal),
-                                    meshMilliseconds),
+                                    meshMilliseconds, meshRebuilds),
                          24, 126, 18, LIGHTGRAY);
                 DrawText(TextFormat("Player: %.1f %.1f %.1f  %s", static_cast<double>(eye.x),
                                     static_cast<double>(player.Position().y),

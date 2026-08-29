@@ -211,11 +211,11 @@ MeshData ChunkMesher::Build(const ChunkSection& section, const BlockAtlasBinding
         binding);
 }
 
-MeshData ChunkMesher::Build(const World& world, const int sectionX, const int sectionY,
-                            const int sectionZ, const BlockAtlasBinding& binding) const {
-    const int baseX = sectionX * ChunkSection::Size;
+MeshData ChunkMesher::Build(const World& world, const int chunkX, const int sectionY,
+                            const int chunkZ, const BlockAtlasBinding& binding) const {
+    const int baseX = chunkX * ChunkSection::Size;
     const int baseY = sectionY * ChunkSection::Size;
-    const int baseZ = sectionZ * ChunkSection::Size;
+    const int baseZ = chunkZ * ChunkSection::Size;
     return BuildMesh(
         [&world, baseX, baseY, baseZ](const int x, const int y, const int z) noexcept {
             return world.GetBlock(baseX + x, baseY + y, baseZ + z);

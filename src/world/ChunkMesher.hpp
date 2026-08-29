@@ -14,9 +14,9 @@ public:
     [[nodiscard]] MeshData Build(const ChunkSection& section,
                                  const BlockAtlasBinding& binding) const;
 
-    // Meshes one section of a world, culling against the real neighbouring
-    // sections across shared boundaries.
-    [[nodiscard]] MeshData Build(const World& world, int sectionX, int sectionY, int sectionZ,
+    // Meshes the section (chunkX, sectionY, chunkZ) of a world, culling against
+    // the real neighbouring sections/columns across shared boundaries.
+    [[nodiscard]] MeshData Build(const World& world, int chunkX, int sectionY, int chunkZ,
                                  const BlockAtlasBinding& binding) const;
 };
 

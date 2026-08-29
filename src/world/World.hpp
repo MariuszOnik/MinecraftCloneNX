@@ -4,48 +4,72 @@
 #include "world/ChunkSection.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace voxelgame {
 
-// A fixed grid of 16^3 chunk sections addressed by world block coordinates.
-// Streaming and unbounded worlds come later; this is the static M3 world.
+// An X/Z-unbounded voxel world of 16^3 sections, `SectionsY` sections tall.
+// Columns at (chunkX, chunkZ) are streamed: loaded (and filled by the generator
+// callback) on demand, and unloaded when far from the player.
 class World {
 public:
-    World(int sectionsX, int sectionsY, int sectionsZ);
+    // Fills a freshly loaded column: called with the column's (chunkX, chunkZ);
+    // the callback writes blocks through world.SetBlock within that column.
+    using ColumnFiller = std::function<void(World& world, int chunkX, int chunkZ)>;
+    using SectionVisitor = std::function<void(int chunkX, int sectionY, int chunkZ)>;
+    using ColumnVisitor = std::function<void(int chunkX, int chunkZ)>;
 
-    [[nodiscard]] int SectionsX() const noexcept { return sectionsX_; }
+    explicit World(int sectionsY, ColumnFiller filler = {});
+
     [[nodiscard]] int SectionsY() const noexcept { return sectionsY_; }
-    [[nodiscard]] int SectionsZ() const noexcept { return sectionsZ_; }
-    [[nodiscard]] int SectionCount() const noexcept {
-        return sectionsX_ * sectionsY_ * sectionsZ_;
-    }
-
-    [[nodiscard]] int BlocksX() const noexcept { return sectionsX_ * ChunkSection::Size; }
     [[nodiscard]] int BlocksY() const noexcept { return sectionsY_ * ChunkSection::Size; }
-    [[nodiscard]] int BlocksZ() const noexcept { return sectionsZ_ * ChunkSection::Size; }
 
-    // World-coordinate block access. Out-of-world reads return Air; out-of-world
-    // writes are rejected.
+    [[nodiscard]] static constexpr int ToChunk(int block) noexcept { return block >> 4; }
+    [[nodiscard]] static constexpr int ToLocal(int block) noexcept { return block & 15; }
+
+    // World-block access. Reads outside the vertical range or in an unloaded
+    // column return Air; writes there are rejected.
     [[nodiscard]] BlockId GetBlock(int x, int y, int z) const noexcept;
     bool SetBlock(int x, int y, int z, BlockId block) noexcept;
 
-    [[nodiscard]] const ChunkSection& SectionAt(int sx, int sy, int sz) const noexcept;
-    [[nodiscard]] ChunkSection& SectionAt(int sx, int sy, int sz) noexcept;
+    [[nodiscard]] bool IsColumnLoaded(int chunkX, int chunkZ) const noexcept;
+    // Loads and fills the column if absent; returns true when newly loaded.
+    bool EnsureColumn(int chunkX, int chunkZ);
+    void UnloadColumn(int chunkX, int chunkZ);
 
-    [[nodiscard]] bool SectionMeshDirty(int sx, int sy, int sz) const noexcept;
-    void MarkSectionMeshClean(int sx, int sy, int sz) noexcept;
+    [[nodiscard]] std::size_t LoadedColumnCount() const noexcept { return columns_.size(); }
+    [[nodiscard]] std::size_t LoadedSectionCount() const noexcept {
+        return columns_.size() * static_cast<std::size_t>(sectionsY_);
+    }
+
+    void ForEachLoadedColumn(const ColumnVisitor& fn) const;
+    void ForEachLoadedSection(const SectionVisitor& fn) const;
+
+    [[nodiscard]] bool SectionMeshDirty(int chunkX, int sectionY, int chunkZ) const noexcept;
+    void MarkSectionMeshClean(int chunkX, int sectionY, int chunkZ) noexcept;
 
     [[nodiscard]] std::size_t NonAirBlockCount() const noexcept;
 
 private:
-    [[nodiscard]] bool InBounds(int x, int y, int z) const noexcept;
-    [[nodiscard]] std::size_t SectionIndex(int sx, int sy, int sz) const noexcept;
+    struct Column {
+        std::vector<ChunkSection> sections;
+        int chunkX = 0;
+        int chunkZ = 0;
+    };
 
-    int sectionsX_;
+    [[nodiscard]] static std::int64_t Key(int chunkX, int chunkZ) noexcept {
+        return (static_cast<std::int64_t>(chunkX) << 32) |
+               static_cast<std::int64_t>(static_cast<std::uint32_t>(chunkZ));
+    }
+    [[nodiscard]] const Column* Find(int chunkX, int chunkZ) const noexcept;
+    [[nodiscard]] Column* Find(int chunkX, int chunkZ) noexcept;
+
     int sectionsY_;
-    int sectionsZ_;
-    std::vector<ChunkSection> sections_;
+    ColumnFiller filler_;
+    std::unordered_map<std::int64_t, Column> columns_;
 };
 
 }  // namespace voxelgame

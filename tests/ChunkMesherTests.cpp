@@ -199,46 +199,68 @@ int main() {
                "padded atlas size is accepted");
     }
 
-    // World: block access, boundary dirty propagation, cross-section culling.
+    // World: streamed columns, negative coordinates, boundary dirty propagation.
     {
-        World world(2, 1, 1);  // 32 x 16 x 16 blocks
-        Expect(world.BlocksX() == 32 && world.BlocksY() == 16 && world.BlocksZ() == 16,
-               "world dimensions");
-        Expect(world.GetBlock(-1, 0, 0) == blocks::Air, "out-of-world read is air");
-        Expect(!world.SetBlock(40, 0, 0, blocks::Stone), "out-of-world write is rejected");
+        World world(1);
+        Expect(world.BlocksY() == 16, "vertical extent");
+        Expect(world.GetBlock(3, 3, 3) == blocks::Air, "unloaded column reads as air");
+        Expect(!world.SetBlock(3, 3, 3, blocks::Stone), "write to an unloaded column is rejected");
 
-        Expect(world.SetBlock(20, 5, 5, blocks::Stone), "in-world write");
-        Expect(world.GetBlock(20, 5, 5) == blocks::Stone, "write is visible via GetBlock");
-        Expect(world.SectionMeshDirty(1, 0, 0), "written section is dirty");
+        Expect(world.EnsureColumn(0, 0), "column loads");
+        Expect(!world.EnsureColumn(0, 0), "loading a loaded column is a no-op");
+        world.EnsureColumn(1, 0);
+        world.EnsureColumn(-1, -1);
+
+        Expect(world.SetBlock(5, 5, 5, blocks::Stone), "in-column write");
+        Expect(world.GetBlock(5, 5, 5) == blocks::Stone, "write is visible via GetBlock");
+        Expect(world.SetBlock(-1, 3, -5, blocks::Dirt), "negative-coordinate write");
+        Expect(world.GetBlock(-1, 3, -5) == blocks::Dirt, "negative-coordinate read");
 
         world.MarkSectionMeshClean(0, 0, 0);
         world.MarkSectionMeshClean(1, 0, 0);
-        // Local x == 0 of section 1 (world x == 16) touches section 0's boundary.
-        Expect(world.SetBlock(16, 8, 8, blocks::Stone), "boundary write");
+        Expect(world.SetBlock(15, 8, 8, blocks::Stone), "edit on the column-0/1 boundary");
         Expect(world.SectionMeshDirty(0, 0, 0) && world.SectionMeshDirty(1, 0, 0),
-               "a boundary edit dirties both sections");
+               "a column-boundary edit dirties the neighbour column too");
 
-        World solid(2, 1, 1);
+        world.MarkSectionMeshClean(1, 0, 0);
+        Expect(world.EnsureColumn(2, 0), "another column loads");
+        Expect(world.SectionMeshDirty(1, 0, 0),
+               "loading a column re-dirties its already-loaded neighbours");
+
+        const std::size_t before = world.LoadedColumnCount();
+        world.UnloadColumn(0, 0);
+        Expect(!world.IsColumnLoaded(0, 0), "column unloaded");
+        Expect(world.LoadedColumnCount() == before - 1, "loaded count drops on unload");
+        Expect(world.GetBlock(5, 5, 5) == blocks::Air, "unloaded blocks read as air");
+    }
+
+    // Cross-column meshing: a shared face between two solid columns is culled.
+    {
+        World solid(1);
+        solid.EnsureColumn(0, 0);
+        solid.EnsureColumn(1, 0);
         for (int y = 0; y < ChunkSection::Size; ++y) {
             for (int z = 0; z < ChunkSection::Size; ++z) {
-                for (int x = 0; x < solid.BlocksX(); ++x) {
+                for (int x = 0; x < 2 * ChunkSection::Size; ++x) {
                     solid.SetBlock(x, y, z, blocks::Stone);
                 }
             }
         }
         const MeshData left = mesher.Build(solid, 0, 0, 0, defaultAtlas);
-        ExpectMesh(left, 5);  // +X face is culled by the neighbouring section
+        ExpectMesh(left, 5);  // +X face is culled by the neighbouring column
         for (std::size_t q = 0; q < left.quadCount; ++q) {
-            const auto n = QuadNormal(left, q);
-            Expect(!Near(n[0], 1.0F), "no +X face where a solid neighbour section abuts");
+            Expect(!Near(QuadNormal(left, q)[0], 1.0F),
+                   "no +X face where a solid neighbour column abuts");
         }
-        // In isolation the same section keeps all six faces.
-        ExpectMesh(mesher.Build(solid.SectionAt(0, 0, 0), defaultAtlas), 6);
+        ChunkSection lone;
+        lone.Fill(blocks::Stone);
+        ExpectMesh(mesher.Build(lone, defaultAtlas), 6);  // isolation keeps all six faces
     }
 
     // PlayerBody: gravity/landing, walls, jumping.
     {
-        World ground(1, 1, 1);
+        World ground(1);
+        ground.EnsureColumn(0, 0);
         for (int z = 0; z < ChunkSection::Size; ++z) {
             for (int x = 0; x < ChunkSection::Size; ++x) {
                 ground.SetBlock(x, 0, z, blocks::Stone);
@@ -253,8 +275,9 @@ int main() {
         Expect(std::fabs(body.Position().y - 1.0F) < 0.05F,
                "player rests on top of the y=0 block");
 
-        // Walk east into a wall column at x = 11.
-        World walled(1, 1, 1);
+        // Walk east into a wall at x = 11.
+        World walled(1);
+        walled.EnsureColumn(0, 0);
         for (int y = 0; y < ChunkSection::Size; ++y) {
             for (int z = 0; z < ChunkSection::Size; ++z) {
                 for (int x = 0; x < ChunkSection::Size; ++x) {
@@ -284,7 +307,8 @@ int main() {
 
     // Raycast: DDA against solid blocks with entry-face normals and reach limit.
     {
-        World scene(1, 1, 1);
+        World scene(1);
+        scene.EnsureColumn(0, 0);
         for (int z = 0; z < ChunkSection::Size; ++z) {
             for (int x = 0; x < ChunkSection::Size; ++x) {
                 scene.SetBlock(x, 0, z, blocks::Stone);          // floor
@@ -317,20 +341,27 @@ int main() {
 
     // TerrainGenerator: determinism, seed sensitivity, layered columns.
     {
+        constexpr int span = 2 * ChunkSection::Size;  // a 2x2 chunk area
         const auto fill = [](std::uint32_t seed) {
-            World w(2, 2, 2);
-            TerrainGenerator(seed).Generate(w);
+            World w(2, [seed](World& ww, int cx, int cz) {
+                TerrainGenerator(seed).FillColumn(ww, cx, cz);
+            });
+            for (int cz = 0; cz < 2; ++cz) {
+                for (int cx = 0; cx < 2; ++cx) {
+                    w.EnsureColumn(cx, cz);
+                }
+            }
             return w;
         };
 
         World a = fill(42);
         World b = fill(42);
+        World c = fill(43);
         bool identical = true;
         bool differsFromOtherSeed = false;
-        World c = fill(43);
         for (int y = 0; y < a.BlocksY() && identical; ++y) {
-            for (int z = 0; z < a.BlocksZ(); ++z) {
-                for (int x = 0; x < a.BlocksX(); ++x) {
+            for (int z = 0; z < span; ++z) {
+                for (int x = 0; x < span; ++x) {
                     if (a.GetBlock(x, y, z) != b.GetBlock(x, y, z)) {
                         identical = false;
                     }
@@ -345,8 +376,8 @@ int main() {
 
         const TerrainGenerator gen(42);
         int checkedColumns = 0;
-        for (int z = 1; z < a.BlocksZ(); z += 5) {
-            for (int x = 1; x < a.BlocksX(); x += 5) {
+        for (int z = 1; z < span; z += 5) {
+            for (int x = 1; x < span; x += 5) {
                 const int surface = gen.SurfaceHeight(x, z);
                 Expect(surface >= 1 && surface < a.BlocksY(), "surface height stays in bounds");
                 Expect(a.GetBlock(x, 0, z) == blocks::Bedrock, "column floor is bedrock");

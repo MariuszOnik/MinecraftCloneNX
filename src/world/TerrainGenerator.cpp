@@ -125,11 +125,15 @@ int TerrainGenerator::SurfaceHeight(const int worldX, const int worldZ) const no
     return kBaseHeight + static_cast<int>(std::lround(n * kAmplitude));
 }
 
-void TerrainGenerator::Generate(World& world) const {
+void TerrainGenerator::FillColumn(World& world, const int chunkX, const int chunkZ) const {
     const int maxY = world.BlocksY() - 1;
+    const int baseX = chunkX * 16;
+    const int baseZ = chunkZ * 16;
 
-    for (int z = 0; z < world.BlocksZ(); ++z) {
-        for (int x = 0; x < world.BlocksX(); ++x) {
+    for (int lz = 0; lz < 16; ++lz) {
+        for (int lx = 0; lx < 16; ++lx) {
+            const int x = baseX + lx;
+            const int z = baseZ + lz;
             const int surface = std::clamp(SurfaceHeight(x, z), 1, maxY);
             const bool beach = surface <= kSeaLevel + 1;
 
@@ -144,14 +148,8 @@ void TerrainGenerator::Generate(World& world) const {
                 }
                 world.SetBlock(x, y, z, block);
             }
-        }
-    }
 
-    for (int z = 2; z < world.BlocksZ() - 2; ++z) {
-        for (int x = 2; x < world.BlocksX() - 2; ++x) {
-            const int surface = std::clamp(SurfaceHeight(x, z), 1, maxY);
-            if (surface > kSeaLevel + 1 && surface + 8 < world.BlocksY() &&
-                ShouldPlantTree(x, z, seed_)) {
+            if (!beach && surface + 8 < world.BlocksY() && ShouldPlantTree(x, z, seed_)) {
                 PlantTree(world, x, surface, z, seed_);
             }
         }
