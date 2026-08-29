@@ -8,11 +8,15 @@ namespace voxelgame {
 
 using BlockId = std::uint16_t;
 
+// Render order: opaque -> cutout -> liquid -> transparent. Liquid (water) draws
+// before transparent (glass) so glass over water composites correctly.
 enum class RenderLayer : std::uint8_t {
     Opaque,
     Cutout,
+    Liquid,
     Transparent,
 };
+inline constexpr int kRenderLayerCount = 4;
 
 enum class BlockShape : std::uint8_t {
     Cube,  // full 1x1x1 cube, greedy-meshed
@@ -55,7 +59,9 @@ inline constexpr BlockId Leaves = 10;
 inline constexpr BlockId Glass = 11;
 inline constexpr BlockId Water = 12;
 inline constexpr BlockId GlassPane = 13;
-inline constexpr BlockId Count = 14;
+inline constexpr BlockId GlassRed = 14;
+inline constexpr BlockId GlassBlue = 15;
+inline constexpr BlockId Count = 16;
 }  // namespace blocks
 
 [[nodiscard]] const BlockDefinition& GetBlockDefinition(BlockId block) noexcept;

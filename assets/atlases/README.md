@@ -21,7 +21,7 @@ grid and which tile each block face uses. The engine loads `atlases/blocks.json`
     "grass_top": [0, 0], "grass_side": [1, 0], "dirt": [2, 0], "stone": [3, 0],
     "cobblestone": [0, 1], "planks": [1, 1], "wood_side": [2, 1], "wood_top": [3, 1],
     "sand": [0, 2], "gravel": [1, 2], "bedrock": [2, 2], "leaves": [3, 2],
-    "glass": [0, 3], "water": [1, 3]
+    "glass": [0, 3], "water": [1, 3], "glass_red": [2, 3], "glass_blue": [3, 3]
   },
   "blocks": {                     // block name (from the registry) -> faces
     "grass": { "top": "grass_top", "bottom": "dirt", "sides": "grass_side" },

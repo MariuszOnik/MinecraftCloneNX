@@ -46,9 +46,10 @@ constexpr double kMeshBudgetMs = 4.0;  // time spent (re)meshing per frame
 
 constexpr float kReach = 5.0F;
 constexpr voxelgame::BlockId kPalette[] = {
-    voxelgame::blocks::Grass,  voxelgame::blocks::Dirt,   voxelgame::blocks::Stone,
-    voxelgame::blocks::Cobblestone, voxelgame::blocks::Planks, voxelgame::blocks::Wood,
-    voxelgame::blocks::Sand,   voxelgame::blocks::Glass,  voxelgame::blocks::GlassPane,
+    voxelgame::blocks::Grass,     voxelgame::blocks::Dirt,      voxelgame::blocks::Stone,
+    voxelgame::blocks::Cobblestone, voxelgame::blocks::Planks,   voxelgame::blocks::Wood,
+    voxelgame::blocks::Sand,      voxelgame::blocks::Glass,     voxelgame::blocks::GlassPane,
+    voxelgame::blocks::GlassRed,  voxelgame::blocks::GlassBlue,
 };
 constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
 
@@ -95,9 +96,14 @@ voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, con
 void BuildShowcase(voxelgame::World& world, const int baseX, const int baseZ) {
     using namespace voxelgame;
     const int gy = SurfaceY(world, baseX, baseZ) + 1;
-    for (int dy = 0; dy < 3; ++dy) {
-        for (int dx = 0; dx < 4; ++dx) {
-            world.SetBlock(baseX + dx, gy + dy, baseZ + 6, blocks::Glass);
+    for (int dy = 0; dy < 4; ++dy) {
+        for (int dx = 0; dx < 6; ++dx) {
+            // A stained-glass window: clear border, red/blue centre.
+            BlockId b = blocks::Glass;
+            if (dy >= 1 && dy <= 2 && dx >= 1 && dx <= 4) {
+                b = (dx + dy) % 2 == 0 ? blocks::GlassRed : blocks::GlassBlue;
+            }
+            world.SetBlock(baseX + dx, gy + dy, baseZ + 6, b);
             world.SetBlock(baseX + dx, gy + dy, baseZ + 3, blocks::GlassPane);
         }
     }
@@ -522,28 +528,32 @@ int main(int argc, char* argv[]) {
                 for (std::size_t k = 0; k < visible.size(); ++k) {
                     visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Cutout);
                 }
-                // Pass 3: transparent -- blended, depth test on, depth write off,
-                // sections drawn back-to-front so overlapping panes composite right.
+                // Passes 3 & 4: liquid (water) then transparent (glass), both
+                // blended with depth write off and sections drawn back-to-front.
+                // Water first so glass over water composites correctly.
                 voxelgame::SetTilingShaderAlphaCutoff(tilingShader, 0.0F);
-                std::vector<std::size_t> order;
-                for (std::size_t k = 0; k < visible.size(); ++k) {
-                    if (visible[k]->HasLayer(voxelgame::RenderLayer::Transparent)) {
-                        order.push_back(k);
-                    }
-                }
                 const auto distSq = [&](const std::size_t k) {
                     const float cx = visiblePos[k].x + 8.0F - camera.position.x;
                     const float cy = visiblePos[k].y + 8.0F - camera.position.y;
                     const float cz = visiblePos[k].z + 8.0F - camera.position.z;
                     return cx * cx + cy * cy + cz * cz;
                 };
-                std::sort(order.begin(), order.end(),
-                          [&](std::size_t a, std::size_t b) { return distSq(a) > distSq(b); });
                 rlDrawRenderBatchActive();
                 rlDisableDepthMask();
                 BeginBlendMode(BLEND_ALPHA);
-                for (const std::size_t k : order) {
-                    visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Transparent);
+                for (const voxelgame::RenderLayer blendedLayer :
+                     {voxelgame::RenderLayer::Liquid, voxelgame::RenderLayer::Transparent}) {
+                    std::vector<std::size_t> order;
+                    for (std::size_t k = 0; k < visible.size(); ++k) {
+                        if (visible[k]->HasLayer(blendedLayer)) {
+                            order.push_back(k);
+                        }
+                    }
+                    std::sort(order.begin(), order.end(),
+                              [&](std::size_t a, std::size_t b) { return distSq(a) > distSq(b); });
+                    for (const std::size_t k : order) {
+                        visible[k]->DrawLayer(visiblePos[k], blendedLayer);
+                    }
                 }
                 EndBlendMode();
                 rlDrawRenderBatchActive();

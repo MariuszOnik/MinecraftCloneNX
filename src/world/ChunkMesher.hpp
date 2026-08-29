@@ -12,10 +12,9 @@ namespace voxelgame {
 
 class World;
 
-// One section's geometry split by render layer (opaque / cutout / transparent),
-// indexed by RenderLayer.
+// One section's geometry split by render layer, indexed by RenderLayer.
 struct SectionMesh {
-    std::array<MeshData, 3> layers;
+    std::array<MeshData, kRenderLayerCount> layers;
 
     [[nodiscard]] MeshData& Layer(RenderLayer layer) noexcept {
         return layers[static_cast<std::size_t>(layer)];
@@ -24,10 +23,19 @@ struct SectionMesh {
         return layers[static_cast<std::size_t>(layer)];
     }
     [[nodiscard]] bool Empty() const noexcept {
-        return layers[0].Empty() && layers[1].Empty() && layers[2].Empty();
+        for (const MeshData& layer : layers) {
+            if (!layer.Empty()) {
+                return false;
+            }
+        }
+        return true;
     }
     [[nodiscard]] std::size_t QuadCount() const noexcept {
-        return layers[0].quadCount + layers[1].quadCount + layers[2].quadCount;
+        std::size_t total = 0;
+        for (const MeshData& layer : layers) {
+            total += layer.quadCount;
+        }
+        return total;
     }
 };
 

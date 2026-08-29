@@ -188,6 +188,18 @@ Color GlassPixel(const int px, const int py) noexcept {
     return WithAlpha(c, 52);  // see-through body
 }
 
+Color StainedGlassPixel(const int px, const int py, const Color tint) noexcept {
+    const bool border = px == 0 || py == 0 || px == atlas::TileSize - 1 || py == atlas::TileSize - 1;
+    if (border) {
+        return WithAlpha(Mix(tint, Color{20, 20, 24, 255}, 0.35F), 210);
+    }
+    if (px + py == 6 || px + py == 7 || px + py == 22 || px + py == 23) {
+        return WithAlpha(Mix(tint, Color{255, 255, 255, 255}, 0.6F), 150);
+    }
+    Color c = Mix(tint, Color{255, 255, 255, 255}, 0.12F * NoiseAt(px, py, 710U));
+    return WithAlpha(c, 96);
+}
+
 Color WaterPixel(const int px, const int py) noexcept {
     // Horizontal wave bands from layered noise.
     const float wave = NoiseAt(px / 3, py, 700U) * 0.6F + NoiseAt(px, py / 5, 701U) * 0.4F;
@@ -228,6 +240,10 @@ Color PixelFor(const int tile, const int px, const int py) noexcept {
             return GlassPixel(px, py);
         case atlas::Tile::Water:
             return WaterPixel(px, py);
+        case atlas::Tile::GlassRed:
+            return StainedGlassPixel(px, py, Color{206, 74, 74, 255});
+        case atlas::Tile::GlassBlue:
+            return StainedGlassPixel(px, py, Color{78, 108, 206, 255});
         default:
             return Color{255, 0, 255, 255};
     }

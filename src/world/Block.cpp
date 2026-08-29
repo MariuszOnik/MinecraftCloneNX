@@ -42,10 +42,14 @@ constexpr std::array<BlockDefinition, blocks::Count> definitions{{
      AllFaces(Tile::Leaves)},
     {"glass", true, true, RenderLayer::Transparent, S::Cube, {198, 226, 236, 128},
      AllFaces(Tile::Glass)},
-    {"water", true, false, RenderLayer::Transparent, S::Cube, {60, 110, 190, 150},
+    {"water", true, false, RenderLayer::Liquid, S::Cube, {60, 110, 190, 150},
      AllFaces(Tile::Water)},
     {"glass_pane", true, true, RenderLayer::Transparent, S::Pane, {198, 226, 236, 128},
      AllFaces(Tile::Glass)},
+    {"glass_red", true, true, RenderLayer::Transparent, S::Cube, {210, 90, 90, 150},
+     AllFaces(Tile::GlassRed)},
+    {"glass_blue", true, true, RenderLayer::Transparent, S::Cube, {90, 120, 210, 150},
+     AllFaces(Tile::GlassBlue)},
 }};
 
 constexpr BlockDefinition unknownDefinition{

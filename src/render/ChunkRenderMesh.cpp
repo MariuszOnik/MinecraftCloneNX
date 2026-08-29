@@ -1,4 +1,4 @@
-#include "render/ChunkRenderMesh.hpp"
+﻿#include "render/ChunkRenderMesh.hpp"
 
 #include <rlgl.h>
 
@@ -62,7 +62,7 @@ ChunkRenderMesh::~ChunkRenderMesh() {
 }
 
 ChunkRenderMesh::ChunkRenderMesh(ChunkRenderMesh&& other) noexcept {
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < kRenderLayerCount; ++i) {
         models_[i] = other.models_[i];
         ready_[i] = other.ready_[i];
         other.models_[i] = Model{};
@@ -73,7 +73,7 @@ ChunkRenderMesh::ChunkRenderMesh(ChunkRenderMesh&& other) noexcept {
 ChunkRenderMesh& ChunkRenderMesh::operator=(ChunkRenderMesh&& other) noexcept {
     if (this != &other) {
         Unload();
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < kRenderLayerCount; ++i) {
             models_[i] = other.models_[i];
             ready_[i] = other.ready_[i];
             other.models_[i] = Model{};
@@ -86,7 +86,7 @@ ChunkRenderMesh& ChunkRenderMesh::operator=(ChunkRenderMesh&& other) noexcept {
 bool ChunkRenderMesh::Upload(const SectionMesh& data, const Texture2D atlas, const Shader shader) {
     Unload();
     bool ok = true;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < kRenderLayerCount; ++i) {
         const MeshData& layer = data.layers[static_cast<std::size_t>(i)];
         if (layer.Empty()) {
             continue;
@@ -117,7 +117,7 @@ void ChunkRenderMesh::DropRefs(Model& model) noexcept {
 }
 
 void ChunkRenderMesh::Unload() noexcept {
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < kRenderLayerCount; ++i) {
         if (ready_[i]) {
             DropRefs(models_[i]);
             UnloadModel(models_[i]);

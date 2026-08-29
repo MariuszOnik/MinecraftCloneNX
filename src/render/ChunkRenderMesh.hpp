@@ -28,8 +28,8 @@ private:
     void Unload() noexcept;
     static void DropRefs(Model& model) noexcept;
 
-    Model models_[3]{};
-    bool ready_[3]{};
+    Model models_[kRenderLayerCount]{};
+    bool ready_[kRenderLayerCount]{};
 };
 
 }  // namespace voxelgame

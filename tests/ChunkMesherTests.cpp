@@ -261,16 +261,20 @@ int main() {
         ExpectMesh(Opaque(mesher.Build(lone, defaultAtlas)), 6);  // isolation keeps six faces
     }
 
-    // Render layers: leaves route to cutout, glass/water to transparent, and two
-    // identical non-opaque blocks hide the face between them.
+    // Render layers: leaves -> cutout, glass -> transparent, water -> liquid,
+    // and identical non-opaque neighbours hide the face between them.
     {
         ChunkSection s;
         s.Set(4, 4, 4, blocks::Leaves);
         s.Set(6, 4, 4, blocks::Glass);
+        s.Set(8, 4, 4, blocks::Water);
+        s.Set(10, 4, 4, blocks::GlassRed);
         const SectionMesh m = mesher.Build(s, defaultAtlas);
         Expect(m.Layer(RenderLayer::Opaque).Empty(), "no opaque geometry here");
         Expect(m.Layer(RenderLayer::Cutout).quadCount == 6, "leaves -> 6 cutout faces");
-        Expect(m.Layer(RenderLayer::Transparent).quadCount == 6, "glass -> 6 transparent faces");
+        Expect(m.Layer(RenderLayer::Liquid).quadCount == 6, "water -> 6 liquid faces");
+        Expect(m.Layer(RenderLayer::Transparent).quadCount == 12,
+               "glass + stained glass -> 12 transparent faces");
 
         // Two glass blocks: the shared face is culled and the four coplanar
         // faces merge -> 6 quads, exactly like an opaque pair.
