@@ -6,6 +6,7 @@
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
 #include "world/Raycast.hpp"
+#include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
 
 #include <array>
@@ -314,10 +315,58 @@ int main() {
         Expect(!tooFar.hit, "reach limit stops the ray short of the wall");
     }
 
+    // TerrainGenerator: determinism, seed sensitivity, layered columns.
+    {
+        const auto fill = [](std::uint32_t seed) {
+            World w(2, 2, 2);
+            TerrainGenerator(seed).Generate(w);
+            return w;
+        };
+
+        World a = fill(42);
+        World b = fill(42);
+        bool identical = true;
+        bool differsFromOtherSeed = false;
+        World c = fill(43);
+        for (int y = 0; y < a.BlocksY() && identical; ++y) {
+            for (int z = 0; z < a.BlocksZ(); ++z) {
+                for (int x = 0; x < a.BlocksX(); ++x) {
+                    if (a.GetBlock(x, y, z) != b.GetBlock(x, y, z)) {
+                        identical = false;
+                    }
+                    if (a.GetBlock(x, y, z) != c.GetBlock(x, y, z)) {
+                        differsFromOtherSeed = true;
+                    }
+                }
+            }
+        }
+        Expect(identical, "same seed generates an identical world");
+        Expect(differsFromOtherSeed, "a different seed generates different terrain");
+
+        const TerrainGenerator gen(42);
+        int checkedColumns = 0;
+        for (int z = 1; z < a.BlocksZ(); z += 5) {
+            for (int x = 1; x < a.BlocksX(); x += 5) {
+                const int surface = gen.SurfaceHeight(x, z);
+                Expect(surface >= 1 && surface < a.BlocksY(), "surface height stays in bounds");
+                Expect(a.GetBlock(x, 0, z) == blocks::Bedrock, "column floor is bedrock");
+                const BlockId top = a.GetBlock(x, surface, z);
+                Expect(top == blocks::Grass || top == blocks::Sand,
+                       "column surface is grass or sand");
+                const BlockId above = a.GetBlock(x, surface + 1, z);
+                Expect(above == blocks::Air || above == blocks::Wood,
+                       "above the surface is air (or a tree trunk)");
+                Expect(IsSolidBlock(a.GetBlock(x, surface - 1, z)), "solid directly below the surface");
+                ++checkedColumns;
+            }
+        }
+        Expect(checkedColumns > 0, "sampled at least one column");
+    }
+
     if (failures != 0) {
         std::cerr << failures << " voxel test(s) failed\n";
         return 1;
     }
-    std::cout << "Chunk section, world, player, raycast and greedy mesher tests passed\n";
+    std::cout << "Chunk section, world, player, raycast, terrain and mesher tests passed\n";
     return 0;
 }

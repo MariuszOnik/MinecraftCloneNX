@@ -91,6 +91,7 @@ add_library(voxelgame_world STATIC
     src/world/ChunkSection.cpp
     src/world/PlayerBody.cpp
     src/world/Raycast.cpp
+    src/world/TerrainGenerator.cpp
     src/world/World.cpp
 )
 target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")

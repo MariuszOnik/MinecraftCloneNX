@@ -11,6 +11,7 @@
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
 #include "world/Raycast.hpp"
+#include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
 
 #include <raylib.h>
@@ -19,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -29,9 +31,10 @@
 
 namespace {
 
-constexpr int kWorldSectionsX = 3;
+constexpr int kWorldSectionsX = 5;
 constexpr int kWorldSectionsY = 2;
-constexpr int kWorldSectionsZ = 3;
+constexpr int kWorldSectionsZ = 5;
+constexpr std::uint32_t kDefaultSeed = 0xC0FFEEU;
 
 constexpr float kReach = 5.0F;
 constexpr voxelgame::BlockId kPalette[] = {
@@ -41,80 +44,9 @@ constexpr voxelgame::BlockId kPalette[] = {
 };
 constexpr int kPaletteCount = static_cast<int>(sizeof(kPalette) / sizeof(kPalette[0]));
 
-void AddTree(voxelgame::World& world, const int tx, const int ty, const int tz) {
-    using namespace voxelgame;
-    for (int dy = 0; dy < 5; ++dy) {
-        world.SetBlock(tx, ty + dy, tz, blocks::Wood);
-    }
-    for (int dy = 3; dy <= 6; ++dy) {
-        for (int dz = -2; dz <= 2; ++dz) {
-            for (int dx = -2; dx <= 2; ++dx) {
-                if (std::abs(dx) + std::abs(dz) + std::abs(dy - 5) > 3) {
-                    continue;
-                }
-                if (dx == 0 && dz == 0 && dy < 5) {
-                    continue;
-                }
-                world.SetBlock(tx + dx, ty + dy, tz + dz, blocks::Leaves);
-            }
-        }
-    }
-}
-
-voxelgame::World CreateTestWorld() {
-    using namespace voxelgame;
-    World world(kWorldSectionsX, kWorldSectionsY, kWorldSectionsZ);
-
-    // Rolling layered ground spanning every section.
-    for (int z = 0; z < world.BlocksZ(); ++z) {
-        for (int x = 0; x < world.BlocksX(); ++x) {
-            const int height = 9 + ((x / 8 + z / 8) % 3) + ((x / 6 + z / 4) % 2);
-            for (int y = 0; y <= height; ++y) {
-                BlockId block = blocks::Stone;
-                if (y == 0) {
-                    block = blocks::Bedrock;
-                } else if (y == height) {
-                    block = blocks::Grass;
-                } else if (y + 3 >= height) {
-                    block = blocks::Dirt;
-                }
-                world.SetBlock(x, y, z, block);
-            }
-        }
-    }
-
-    // Sand + gravel shore.
-    for (int z = 2; z < 8; ++z) {
-        for (int x = 2; x < 8; ++x) {
-            world.SetBlock(x, 11, z, ((x + z) % 2 == 0) ? blocks::Sand : blocks::Gravel);
-        }
-    }
-
-    // Plank hut on a cobblestone base with a glass window and a doorway,
-    // straddling a section boundary on purpose.
-    const int hx = 14;
-    const int hz = 12;
-    const int hy = 12;
-    for (int dz = 0; dz < 5; ++dz) {
-        for (int dx = 0; dx < 5; ++dx) {
-            world.SetBlock(hx + dx, hy, hz + dz, blocks::Cobblestone);
-            world.SetBlock(hx + dx, hy + 4, hz + dz, blocks::Planks);
-            const bool wall = dx == 0 || dz == 0 || dx == 4 || dz == 4;
-            for (int dy = 1; dy <= 3 && wall; ++dy) {
-                BlockId b = blocks::Planks;
-                if (dx == 2 && dz == 0 && dy == 2) {
-                    b = blocks::Glass;
-                } else if (dx == 2 && dz == 0 && dy == 1) {
-                    b = blocks::Air;
-                }
-                world.SetBlock(hx + dx, hy + dy, hz + dz, b);
-            }
-        }
-    }
-
-    AddTree(world, 8, 12, 26);
-    AddTree(world, 30, 13, 8);
-
+voxelgame::World CreateWorld(const std::uint32_t seed) {
+    voxelgame::World world(kWorldSectionsX, kWorldSectionsY, kWorldSectionsZ);
+    voxelgame::TerrainGenerator(seed).Generate(world);
     return world;
 }
 
@@ -128,6 +60,15 @@ voxelgame::PlayerBody SpawnPlayer(const voxelgame::World& world) {
     // Drop in from a few blocks up so the first frames show the world.
     return voxelgame::PlayerBody({static_cast<float>(x) + 0.5F, static_cast<float>(y + 4),
                                   static_cast<float>(z) + 0.5F});
+}
+
+std::uint32_t SeedFromArgs(const int argc, char* argv[]) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::strcmp(argv[index], "--seed") == 0) {
+            return static_cast<std::uint32_t>(std::strtoul(argv[index + 1], nullptr, 0));
+        }
+    }
+    return kDefaultSeed;
 }
 
 bool HasArgument(const int argc, char* argv[], const char* expected) {
@@ -272,9 +213,11 @@ int main(int argc, char* argv[]) {
     voxelgame::SetTilingShaderExtent(tilingShader, atlas.binding.TileExtentU(),
                                      atlas.binding.TileExtentV());
 
+    const std::uint32_t seed = SeedFromArgs(argc, argv);
+
     int result = 0;
     {
-        voxelgame::World world = CreateTestWorld();
+        voxelgame::World world = CreateWorld(seed);
         voxelgame::ChunkMesher mesher;
         std::vector<voxelgame::ChunkRenderMesh> meshes(
             static_cast<std::size_t>(world.SectionCount()));
@@ -449,7 +392,8 @@ int main(int argc, char* argv[]) {
                                     static_cast<int>(voxelgame::ShortCommit(build.commit).size()),
                                     voxelgame::ShortCommit(build.commit).data()),
                          24, 76, 18, LIGHTGRAY);
-                DrawText(TextFormat("Sections: %i  Blocks: %i", world.SectionCount(),
+                DrawText(TextFormat("Seed: 0x%X  Sections: %i  Blocks: %i",
+                                    static_cast<unsigned>(seed), world.SectionCount(),
                                     static_cast<int>(world.NonAirBlockCount())),
                          24, 104, 18, LIGHTGRAY);
                 DrawText(TextFormat("Quads: %i  Tris: %i  Mesh: %.2f ms",

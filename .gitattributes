@@ -1,0 +1,7 @@
+# Keep LF in the repository regardless of the git build in use.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.nro binary
+*.nacp binary
