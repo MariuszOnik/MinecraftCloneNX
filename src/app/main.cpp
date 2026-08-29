@@ -60,14 +60,34 @@ int SurfaceY(const voxelgame::World& world, const int x, const int z) {
     return y;
 }
 
-voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, const int chunkZ) {
+voxelgame::PlayerBody SpawnPlayer(voxelgame::World& world, const int chunkX, const int chunkZ,
+                                  const bool underwater) {
     world.EnsureColumn(chunkX, chunkZ);
-    const int x = chunkX * voxelgame::ChunkSection::Size + 8;
-    const int z = chunkZ * voxelgame::ChunkSection::Size + 8;
+    const int cx = chunkX * voxelgame::ChunkSection::Size + 8;
+    const int cz = chunkZ * voxelgame::ChunkSection::Size + 8;
+
+    if (underwater) {
+        // Search outward for a deep water column and drop the player into it.
+        for (int r = 1; r < 60; ++r) {
+            for (int dz = -r; dz <= r; ++dz) {
+                for (int dx = -r; dx <= r; ++dx) {
+                    if (std::max(std::abs(dx), std::abs(dz)) != r) continue;
+                    const int x = cx + dx * 3;
+                    const int z = cz + dz * 3;
+                    world.EnsureColumn(voxelgame::World::ToChunk(x), voxelgame::World::ToChunk(z));
+                    if (world.GetBlock(x, 8, z) == voxelgame::blocks::Water &&
+                        world.GetBlock(x, 9, z) == voxelgame::blocks::Water) {
+                        return voxelgame::PlayerBody(
+                            {static_cast<float>(x) + 0.5F, 8.2F, static_cast<float>(z) + 0.5F});
+                    }
+                }
+            }
+        }
+    }
     // Drop in from a few blocks up so the first frames show the world.
-    return voxelgame::PlayerBody({static_cast<float>(x) + 0.5F,
-                                  static_cast<float>(SurfaceY(world, x, z) + 4),
-                                  static_cast<float>(z) + 0.5F});
+    return voxelgame::PlayerBody({static_cast<float>(cx) + 0.5F,
+                                  static_cast<float>(SurfaceY(world, cx, cz) + 4),
+                                  static_cast<float>(cz) + 0.5F});
 }
 
 // A temporary glass showcase near spawn (water now comes from the generator).
@@ -216,6 +236,7 @@ int main(int argc, char* argv[]) {
     }
 
     const bool smokeWindow = HasArgument(argc, argv, "--smoke-window");
+    const bool diveSpawn = HasArgument(argc, argv, "--dive");
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(960, 540, "VoxelGame - voxel-first");
     if (!IsWindowReady()) {
@@ -341,7 +362,7 @@ int main(int argc, char* argv[]) {
             refreshTotals();
         };
 
-        voxelgame::PlayerBody player = SpawnPlayer(world, 0, 0);
+        voxelgame::PlayerBody player = SpawnPlayer(world, 0, 0, diveSpawn);
         int playerChunkX = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().x)));
         int playerChunkZ = voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().z)));
 
@@ -535,6 +556,19 @@ int main(int argc, char* argv[]) {
                     DrawCubeWires(centre, 1.02F, 1.02F, 1.02F, Fade(RAYWHITE, 0.9F));
                 }
                 EndMode3D();
+
+                // Submerged camera: a blue wash over the whole frame. Oversized
+                // so it covers the viewport regardless of how the platform
+                // reports the render size.
+                const bool eyeUnderwater =
+                    world.GetBlock(static_cast<int>(std::floor(eye.x)),
+                                   static_cast<int>(std::floor(eye.y)),
+                                   static_cast<int>(std::floor(eye.z))) == voxelgame::blocks::Water;
+                if (eyeUnderwater) {
+                    const int w = std::max(GetRenderWidth(), GetScreenWidth());
+                    const int h = std::max(GetRenderHeight(), GetScreenHeight());
+                    DrawRectangle(-w, -h, w * 3, h * 3, Color{26, 84, 138, 120});
+                }
 
                 DrawRectangle(12, 12, 400, 230, Fade(BLACK, 0.72F));
                 DrawText("VOXEL-FIRST / WORLD", 24, 22, 22, LIME);
