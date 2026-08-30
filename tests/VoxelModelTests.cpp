@@ -1,11 +1,14 @@
 #include "model/Animation.hpp"
+#include "model/AnimationBinary.hpp"
 #include "model/ModelMath.hpp"
 #include "model/VoxelModel.hpp"
+#include "model/VoxelModelBinary.hpp"
 #include "model/VoxelModelLoader.hpp"
 #include "model/VoxelModelMesher.hpp"
 
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -207,6 +210,74 @@ int main() {
             Expect(!anim.Blending(), "the blend completes");
             const std::vector<PartPose> done = anim.Pose(*model);
             Expect(Near(done[0].rotationDegrees.x, 90.0F), "settled on the incoming clip");
+        }
+    }
+
+    // Binary round-trips: .vxm and .vxa survive write -> read unchanged, and
+    // corrupt data is rejected.
+    {
+        std::string error;
+        constexpr std::string_view kModelJson = R"({
+          "name": "bin", "voxelSize": 0.05,
+          "palette": [ { "name": "a", "color": [10, 20, 30, 40] },
+                       { "name": "b", "color": [1, 2, 3] } ],
+          "parts": [
+            { "name": "root", "parent": null, "position": [1, 2, 3], "pivot": [4, 5, 6],
+              "rotation": [7, 8, 9], "size": [2, 1, 2], "voxels": [1, 0, 2, 1] },
+            { "name": "child", "parent": "root", "size": [1, 1, 1], "fill": 2 }
+          ]
+        })";
+        const auto model = ParseVoxelModel(kModelJson, error);
+        Expect(model.has_value(), "binary test model parses (" + error + ")");
+        if (model) {
+            std::stringstream buffer(std::ios::in | std::ios::out | std::ios::binary);
+            Expect(WriteVoxelModelBinary(buffer, *model), "model binary writes");
+            const auto back = ReadVoxelModelBinary(buffer);
+            Expect(back.has_value(), "model binary reads back");
+            if (back) {
+                Expect(back->name == "bin" && Near(back->voxelSize, 0.05F), "model header survives");
+                Expect(back->palette.size() == 2 && back->palette[0].alpha == 40,
+                       "palette survives");
+                Expect(back->parts.size() == 2 && back->parts[1].parent == 0,
+                       "part hierarchy survives");
+                Expect(back->parts[0].grid.voxels == model->parts[0].grid.voxels,
+                       "voxel data survives");
+                Expect(Near(back->parts[0].pivot.y, 5.0F) &&
+                           Near(back->parts[0].rotationDegrees.z, 9.0F),
+                       "part transform survives");
+            }
+
+            std::stringstream bad("VXM9\x01\x00\x00\x00", std::ios::in | std::ios::binary);
+            Expect(!ReadVoxelModelBinary(bad).has_value(), "wrong magic/version is rejected");
+        }
+
+        constexpr std::string_view kClipJson = R"({
+          "name": "c", "duration": 2.0, "loop": false,
+          "tracks": [ { "part": "root",
+            "rotation": [ { "t": 0.0, "value": [0, 0, 0] }, { "t": 2.0, "value": [90, 0, 0] } ],
+            "position": [ { "t": 1.0, "value": [0, 3, 0] } ] } ],
+          "events": [ { "t": 0.5, "name": "footstep" } ]
+        })";
+        const auto clip = ParseAnimationClip(kClipJson, error);
+        Expect(clip.has_value(), "binary test clip parses (" + error + ")");
+        if (clip) {
+            std::stringstream buffer(std::ios::in | std::ios::out | std::ios::binary);
+            Expect(WriteAnimationBinary(buffer, *clip), "clip binary writes");
+            const auto back = ReadAnimationBinary(buffer);
+            Expect(back.has_value(), "clip binary reads back");
+            if (back) {
+                Expect(back->name == "c" && Near(back->duration, 2.0F) && !back->loop,
+                       "clip header survives");
+                Expect(back->tracks.size() == 1 && back->tracks[0].rotation.size() == 2 &&
+                           back->tracks[0].position.size() == 1,
+                       "track keyframes survive");
+                Expect(back->events.size() == 1 && back->events[0].name == "footstep",
+                       "events survive");
+                Expect(Near(back->tracks[0].rotation[1].value.x, 90.0F), "keyframe value survives");
+            }
+
+            std::stringstream truncated("VXA1", std::ios::in | std::ios::binary);
+            Expect(!ReadAnimationBinary(truncated).has_value(), "a truncated clip is rejected");
         }
     }
 

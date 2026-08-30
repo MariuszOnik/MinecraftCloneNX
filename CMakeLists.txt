@@ -111,7 +111,9 @@ target_include_directories(voxelgame_world SYSTEM PRIVATE
 
 add_library(voxelgame_model STATIC
     src/model/Animation.cpp
+    src/model/AnimationBinary.cpp
     src/model/VoxelModel.cpp
+    src/model/VoxelModelBinary.cpp
     src/model/VoxelModelLoader.cpp
     src/model/VoxelModelMesher.cpp
 )
@@ -137,6 +139,20 @@ target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render raylib)
 
 if(MINGW)
     target_link_options(voxelgame PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+# Host-only asset compiler: .vxm.json/.vxa.json -> .vxm/.vxa (PLAN.md 6.3).
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(voxelgame_assetc tools/asset_compiler/main.cpp)
+    target_link_libraries(voxelgame_assetc PRIVATE voxelgame_model)
+    if(MINGW)
+        target_link_options(voxelgame_assetc PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+    if(MSVC)
+        target_compile_options(voxelgame_assetc PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(voxelgame_assetc PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 endif()
 
 # Runtime assets. On desktop they are staged next to the executable so the game

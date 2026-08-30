@@ -5,3 +5,5 @@
 *.jpg binary
 *.nro binary
 *.nacp binary
+*.vxm binary
+*.vxa binary
