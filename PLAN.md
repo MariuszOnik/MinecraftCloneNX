@@ -12,7 +12,7 @@ Projekt ma docelowo obsługiwać:
 - voxelowe postacie i zwierzęta złożone z hierarchicznych, sztywnych części;
 - własny edytor modeli i animacji voxelowych;
 - import ruchu z FBX, BVH i GLB przez narzędzie wykorzystujące Blendera;
-- logikę gry, NPC, zwierzęta, questy i interakcje pisaną w Lua 5.4;
+- logikę gry, NPC, zwierzęta, questy i interakcje pisaną w Lua 5.1;
 - wersję PC oraz Nintendo Switch homebrew przez raylib-nx i devkitA64;
 - lokalne budowanie w VS Code oraz zdalne budowanie przez GitHub Actions.
 
@@ -239,6 +239,19 @@ Minimalne komponenty:
 
 Zaczynamy od lekkiego rejestru encji i pul komponentów. Nie wdrażamy rozbudowanego frameworka ECS bez rzeczywistej potrzeby.
 
+### 5.6 Kamera i sterowanie graczem
+
+Gracz jest encją z voxelowym modelem (humanoid), `CharacterMotorComponent` (kolizja AABB po voxelach, grawitacja, skok — obecne `PlayerBody`) i `AnimatorComponent` sterowanym prędkością ruchu (idle/walk/run z cross-fade).
+
+`CameraController` udostępnia cztery tryby przełączane jednym klawiszem/skrótem pada:
+
+1. **FPS** — kamera w oczach modelu; model gracza jest ukryty (albo rysujemy tylko ręce). Ruch steruje postacią.
+2. **Third-person** — kamera za postacią, orbita (yaw/pitch + dystans), z kolizją: przy przeszkodzie kamera podjeżdża bliżej, nie wchodzi w geometrię. Ruch steruje postacią względem kierunku kamery.
+3. **Free-cam (budowanie)** — kamera lata swobodnie (noclip), niezależnie od postaci; służy do stawiania i kopania bloków z dowolnego miejsca. Postać stoi w miejscu.
+4. **Isometric** — kamera pod stałym kątem, podąża za postacią z góry (rzut ukośny). Ruch steruje postacią względem osi świata.
+
+Raycast do kopania/stawiania idzie z aktywnej kamery (FPS/third-person/iso: z celownika; free-cam: ze środka ekranu). Sterowanie zawsze przez wspólny `Input` (akcje, nie klawisze).
+
 ## 6. Voxelowe modele postaci i zwierząt
 
 ### 6.1 Budowa modelu
@@ -303,7 +316,7 @@ Plik runtime zawiera magic, wersję formatu, rozmiary sekcji oraz kontrolę popr
 
 ## 7. Edytor voxelowych modeli i animacji
 
-Edytor jest oddzielną aplikacją desktopową korzystającą z tych samych bibliotek renderowania i formatów co gra.
+Edytor jest oddzielną aplikacją desktopową i jak sie uda też jako  .nro korzystającą z tych samych bibliotek renderowania i formatów co gra.
 
 Zakres pierwszej wersji:
 
@@ -365,9 +378,9 @@ Importer ma:
 9. redukować klatki z kontrolowanym błędem;
 10. umożliwiać ręczne poprawki po imporcie.
 
-## 9. Lua 5.4
+## 9. Lua 5.1
 
-Lua jest linkowana statycznie na PC i Switchu. Używamy niewielkich własnych bindingów C/C++, aby identyczne API działało na obu platformach.
+Używamy **Lua 5.1** (na Switchu przez devkitPro portlibs nie ma nowszej — 5.1 jest wspólnym mianownikiem PC/NX; LuaJIT nie jest dostępny na NX). Lua jest linkowana statycznie na PC i Switchu. Używamy niewielkich własnych bindingów C/C++, aby identyczne API działało na obu platformach.
 
 Lua otrzymuje moduły wysokiego poziomu:
 
@@ -584,23 +597,56 @@ Warunek odbioru:
 - części poruszają się bez przebudowy mesha;
 - model ładuje się identycznie na PC i NX.
 
-### M6 — edytor i animacje
+### M6 — gracz jako encja i tryby kamery
+
+Świat i model postaci są gotowe (M3, M5). Ten kamień milowy scala je w grywalną podstawę: sterujemy widocznym modelem gracza i przełączamy tryby kamery (§5.6).
 
 Rezultat:
 
-- malowanie voxeli;
-- części i hierarchia;
-- pivoty;
+- gracz jako encja: voxelowy model (humanoid) + `CharacterMotorComponent` (obecne `PlayerBody`) + `AnimatorComponent` sterowany prędkością (idle/walk/run z cross-fade);
+- `CameraController` z czterema trybami: FPS, third-person (orbita + kolizja kamery), free-cam (noclip, do budowania), isometric;
+- przełączanie trybu jednym skrótem (klawisz + kombinacja pada);
+- raycast kopania/stawiania z aktywnej kamery; w FPS model gracza ukryty;
+- HUD pokazuje aktywny tryb kamery.
+
+Warunek odbioru:
+
+- można przejść świat modelem gracza w FPS i third-person, a animacja chodu/biegu odpowiada ruchowi;
+- free-cam pozwala kopać i stawiać bloki z dowolnego miejsca, gdy postać stoi;
+- isometric podąża za postacią; wszystkie cztery tryby działają na PC i w buildzie NX.
+
+### M7 — encje i Lua 5.1
+
+Rezultat:
+
+- lekki registry encji i pule komponentów (bez pełnego ECS-a);
+- statyczna Lua 5.1 na PC i NX, własne bindingi;
+- API `Game`, `World`, `Entity`, `Animation` jako walidowane uchwyty (bez surowych wskaźników i raylib);
+- eventy i coroutines (`wait`, `wait_event`, `wait_until_arrived`);
+- serializowalny, ograniczony stan skryptu;
+- prosty navigation agent (C++ liczy trasę, Lua wybiera cel).
+
+Warunek odbioru:
+
+- zachowanie kury jest w całości sterowane przez `chicken.lua`;
+- zmiana zachowania nie wymaga rekompilacji C++ na PC;
+- paczka NX zawiera i wczytuje ten sam skrypt.
+
+### M8 — edytor voxelowych modeli i animacji
+
+Rezultat:
+
+- osobna aplikacja desktopowa (`tools/voxel_editor`), te same biblioteki renderowania i formaty co gra;
+- malowanie voxeli, części i hierarchia, pivoty;
 - timeline oraz keyframe'y;
-- `.vxa.json` i `.vxa`;
-- odtwarzanie, pętle i cross-fade.
+- zapis `.vxm.json` / `.vxa.json` i uruchomienie asset compilera (`.vxm` / `.vxa`).
 
 Warunek odbioru:
 
 - w edytorze tworzymy od zera prostą animację chodu kury;
-- gra wczytuje ją bez konwersji runtime.
+- gra wczytuje ją bez ręcznej konwersji runtime.
 
-### M7 — importer mocapu
+### M9 — importer mocapu
 
 Rezultat:
 
@@ -616,24 +662,7 @@ Warunek odbioru:
 - zewnętrzna animacja chodu jest przeniesiona na voxelowego humanoida;
 - wynik działa bez Blendera na PC i Switchu.
 
-### M8 — encje i Lua
-
-Rezultat:
-
-- registry encji i komponenty;
-- statyczna Lua 5.4;
-- API `World`, `Entity`, `Animation`;
-- eventy i coroutines;
-- serializowalny stan skryptu;
-- prosty navigation agent.
-
-Warunek odbioru:
-
-- zachowanie kury jest w całości sterowane przez `chicken.lua`;
-- zmiana zachowania nie wymaga rekompilacji C++ na PC;
-- paczka NX zawiera i wczytuje ten sam skrypt.
-
-### M9 — pierwszy vertical slice
+### M10 — pierwszy vertical slice
 
 Scena zawiera:
 
@@ -647,7 +676,7 @@ Scena zawiera:
 
 To jest pierwsza wersja, którą uznajemy za zalążek gry, a nie demo technologiczne.
 
-### M10 — profilowanie i Switch
+### M11 — profilowanie i Switch
 
 Rezultat:
 
