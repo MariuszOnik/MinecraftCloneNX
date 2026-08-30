@@ -583,10 +583,18 @@ int main(int argc, char* argv[]) {
         if (meshError) {
             result = 4;
         } else {
-            // M6: camera views. FPS puts the camera in the avatar's eyes and
-            // hides the model; third-person pulls back so you watch it walk.
-            enum class CameraView { Fps, ThirdPerson };
+            // M6: camera views. FPS = eye camera, avatar hidden. Third-person =
+            // spring arm behind the head. Free-cam = detached fly camera for
+            // building; the player stands still.
+            enum class CameraView { Fps, ThirdPerson, FreeCam };
+            constexpr int kCameraViewCount = 3;
             CameraView cameraView = smokeWindow ? CameraView::ThirdPerson : CameraView::Fps;
+            if (const char* v = GetArgvValue(argc, argv, "--camera")) {
+                cameraView = std::strcmp(v, "free") == 0     ? CameraView::FreeCam
+                             : std::strcmp(v, "3rd") == 0    ? CameraView::ThirdPerson
+                                                            : CameraView::Fps;
+            }
+            Vector3 freeCamPos{};
             float avatarYaw = 0.12F;  // smoothed toward the movement direction
             float yaw = loadedSave ? loadedSave->yaw : 0.12F;  // face the chamber of panes
             float pitch = loadedSave ? loadedSave->pitch : 0.02F;
@@ -648,6 +656,14 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+                bool enteredFreeCam = false;
+                if (in.cycleView) {
+                    cameraView = static_cast<CameraView>(
+                        (static_cast<int>(cameraView) + 1) % kCameraViewCount);
+                    enteredFreeCam = cameraView == CameraView::FreeCam;
+                }
+                const bool freeCam = cameraView == CameraView::FreeCam;
+
                 yaw += in.lookYaw;
                 pitch = std::clamp(pitch + in.lookPitch, -1.55F, 1.55F);
                 const float cy = std::cos(yaw);
@@ -667,16 +683,12 @@ int main(int argc, char* argv[]) {
                 }
                 const float speed = in.sprint ? 7.5F : 4.5F;
                 const float dt = std::min(GetFrameTime(), 0.05F);
-                player.Step(world, {wishX * speed, 0.0F, wishZ * speed}, in.jump, dt);
+                // Free-cam flies detached; the character stands (gravity only).
+                player.Step(world, freeCam ? voxelgame::Vec3{} : voxelgame::Vec3{wishX * speed, 0.0F, wishZ * speed},
+                            !freeCam && in.jump, dt);
 
-                if (in.cycleView) {
-                    cameraView = cameraView == CameraView::Fps ? CameraView::ThirdPerson
-                                                              : CameraView::Fps;
-                }
-
-                // The avatar turns toward where it is moving; when standing it
-                // keeps its last facing.
-                const bool moving = wishLen > 0.05F;
+                // Free-cam turns the character's gait off; other views drive it.
+                const bool moving = !freeCam && wishLen > 0.05F;
                 if (moving) {
                     avatarYaw = std::atan2(wishX, -wishZ);
                 }
@@ -710,7 +722,20 @@ int main(int argc, char* argv[]) {
                 }
 
                 const voxelgame::Vec3 eye = player.EyePosition();
-                if (cameraView == CameraView::Fps) {
+                if (freeCam) {
+                    if (enteredFreeCam) {
+                        freeCamPos = {eye.x, eye.y, eye.z};
+                    }
+                    const float step = (in.sprint ? 22.0F : 8.0F) * dt;
+                    freeCamPos.x +=
+                        (forward.x * in.moveForward + rightFlat.x * in.moveStrafe) * step;
+                    freeCamPos.y += (forward.y * in.moveForward + in.fly) * step;
+                    freeCamPos.z +=
+                        (forward.z * in.moveForward + rightFlat.z * in.moveStrafe) * step;
+                    camera.position = freeCamPos;
+                    camera.target = {freeCamPos.x + forward.x, freeCamPos.y + forward.y,
+                                     freeCamPos.z + forward.z};
+                } else if (cameraView == CameraView::Fps) {
                     camera.position = {eye.x, eye.y, eye.z};
                     camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
                 } else {
@@ -751,8 +776,13 @@ int main(int argc, char* argv[]) {
                                 kPaletteCount;
                 }
 
+                // Break/place from the active camera: the eye in FPS/third-person,
+                // the fly camera (with a longer reach) when building in free-cam.
+                const voxelgame::Vec3 castOrigin =
+                    freeCam ? voxelgame::Vec3{camera.position.x, camera.position.y, camera.position.z}
+                            : eye;
                 const voxelgame::RaycastHit target = voxelgame::Raycast(
-                    world, eye, {forward.x, forward.y, forward.z}, kReach);
+                    world, castOrigin, {forward.x, forward.y, forward.z}, freeCam ? 8.0F : kReach);
 
                 bool worldChanged = false;
                 if (target.hit && in.breakBlock) {
@@ -888,9 +918,10 @@ int main(int argc, char* argv[]) {
                 // so it covers the viewport regardless of how the platform
                 // reports the render size.
                 const bool eyeUnderwater =
-                    world.GetBlock(static_cast<int>(std::floor(eye.x)),
-                                   static_cast<int>(std::floor(eye.y)),
-                                   static_cast<int>(std::floor(eye.z))) == voxelgame::blocks::Water;
+                    world.GetBlock(static_cast<int>(std::floor(camera.position.x)),
+                                   static_cast<int>(std::floor(camera.position.y)),
+                                   static_cast<int>(std::floor(camera.position.z))) ==
+                    voxelgame::blocks::Water;
                 if (eyeUnderwater) {
                     const int w = std::max(GetRenderWidth(), GetScreenWidth());
                     const int h = std::max(GetRenderHeight(), GetScreenHeight());
@@ -923,8 +954,10 @@ int main(int argc, char* argv[]) {
                                                           : "airborne"),
                          24, 148, 18, LIGHTGRAY);
                 const voxelgame::vmodel::AnimationClip* gaitNow = playerAnimator.Current();
-                DrawText(TextFormat("FPS: %i  Cam: %s  Gait: %s%s  Atlas: %s", GetFPS(),
-                                    cameraView == CameraView::Fps ? "fps" : "3rd-person",
+                const char* viewName = cameraView == CameraView::Fps          ? "fps"
+                                       : cameraView == CameraView::ThirdPerson ? "3rd-person"
+                                                                              : "free-cam";
+                DrawText(TextFormat("FPS: %i  Cam: %s  Gait: %s%s  Atlas: %s", GetFPS(), viewName,
                                     gaitNow != nullptr ? gaitNow->name.c_str() : "rest",
                                     playerAnimator.Blending() ? " >" : "", atlasSourceLabel),
                          24, 170, 18, LIGHTGRAY);
@@ -933,7 +966,7 @@ int main(int argc, char* argv[]) {
                                         voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.size()),
                                     voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.data()),
                          24, 192, 18, target.hit ? LIME : LIGHTGRAY);
-                DrawText("WASD move  Space jump  ZR/ZL break/place  C camera  Tab mouse  F5 save",
+                DrawText("WASD move  Space/Ctrl fly  ZR/ZL break/place  C camera  Tab mouse  F5 save",
                          24, 214, 15, GRAY);
 
                 if (GetTime() < saveFlashUntil) {

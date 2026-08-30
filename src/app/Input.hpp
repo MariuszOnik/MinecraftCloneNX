@@ -7,6 +7,7 @@ namespace voxelgame {
 struct FrameInput {
     float moveForward = 0.0F;   // -1..1, +forward
     float moveStrafe = 0.0F;    // -1..1, +right
+    float fly = 0.0F;           // -1..1, +up / -down (free-cam vertical)
     float lookYaw = 0.0F;       // radians this frame, + turns left
     float lookPitch = 0.0F;     // radians this frame, + looks up
     bool jump = false;          // pressed this frame

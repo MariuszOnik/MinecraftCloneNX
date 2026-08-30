@@ -49,6 +49,7 @@ FrameInput PollFrameInput(const bool mouseLook) {
     FrameInput input;
     input.moveForward = KeyAxis(KEY_S, KEY_W);
     input.moveStrafe = KeyAxis(KEY_A, KEY_D);
+    input.fly = KeyAxis(KEY_LEFT_CONTROL, KEY_SPACE);
     input.jump = IsKeyPressed(KEY_SPACE);
     input.sprint = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
     input.toggleMouseLook = IsKeyPressed(KEY_TAB);
@@ -97,6 +98,10 @@ FrameInput PollFrameInput(const bool mouseLook) {
         input.jump = input.jump || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ||
                      (!l1Held && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT));
         input.sprint = input.sprint || l1Held;
+        // Free-cam vertical: R1 up, L1 down (L1 also boosts speed via sprint).
+        input.fly += static_cast<float>(IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) -
+                     static_cast<float>(l1Held);
+        input.fly = std::clamp(input.fly, -1.0F, 1.0F);
         input.toggleMouseLook =
             input.toggleMouseLook || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
         input.cycleView =
