@@ -109,14 +109,24 @@ target_include_directories(voxelgame_world PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/s
 target_include_directories(voxelgame_world SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
+add_library(voxelgame_model STATIC
+    src/model/VoxelModel.cpp
+    src/model/VoxelModelLoader.cpp
+    src/model/VoxelModelMesher.cpp
+)
+target_include_directories(voxelgame_model PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(voxelgame_model SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+
 add_library(voxelgame_render STATIC
     src/render/BlockAtlas.cpp
     src/render/ChunkRenderMesh.cpp
     src/render/Frustum.cpp
     src/render/TilingShader.cpp
+    src/render/VoxelModelRenderer.cpp
 )
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(voxelgame_render PUBLIC voxelgame_world PRIVATE raylib)
+target_link_libraries(voxelgame_render PUBLIC voxelgame_world voxelgame_model PRIVATE raylib)
 
 add_executable(voxelgame
     src/app/Input.cpp
@@ -136,11 +146,13 @@ set(VOXELGAME_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets")
 if(MSVC)
     target_compile_options(voxelgame_core PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_world PRIVATE /W4 /permissive-)
+    target_compile_options(voxelgame_model PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_render PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame PRIVATE /W4 /permissive-)
 else()
     target_compile_options(voxelgame_core PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame_world PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(voxelgame_model PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame_render PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -204,7 +216,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_options(voxelgame_world_tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
+    add_executable(voxelgame_model_tests tests/VoxelModelTests.cpp)
+    target_link_libraries(voxelgame_model_tests PRIVATE voxelgame_model)
+    if(MINGW)
+        target_link_options(voxelgame_model_tests PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+
     add_test(NAME core.build_info COMMAND voxelgame_core_tests)
     add_test(NAME world.chunk_mesher COMMAND voxelgame_world_tests)
+    add_test(NAME model.voxel_model COMMAND voxelgame_model_tests)
     add_test(NAME app.smoke COMMAND voxelgame --smoke-test)
 endif()

@@ -12,6 +12,9 @@
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
 #include "world/Raycast.hpp"
+#include "model/ModelMath.hpp"
+#include "model/VoxelModelLoader.hpp"
+#include "render/VoxelModelRenderer.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
 #include "world/WorldSave.hpp"
@@ -169,6 +172,15 @@ bool HasArgument(const int argc, char* argv[], const char* expected) {
     return false;
 }
 
+const char* GetArgvValue(const int argc, char* argv[], const char* flag) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::strcmp(argv[index], flag) == 0) {
+            return argv[index + 1];
+        }
+    }
+    return nullptr;
+}
+
 void PrintBuildInfo(const voxelgame::BuildInfo& info) {
     std::printf("VoxelGame %.*s | %.*s | commit %.*s\n",
                 static_cast<int>(info.version.size()), info.version.data(),
@@ -257,6 +269,37 @@ LoadedAtlas LoadBlockAtlas(const voxelgame::AssetPaths& assets) {
     return out;
 }
 
+// Loads a .vxm.json voxel model through the asset resolver and uploads its parts.
+// Every failure is logged and yields an empty (not-ready) render mesh rather than
+// a silent fallback (PLAN.md 12).
+voxelgame::VoxelModelRenderMesh LoadVoxelModel(const voxelgame::AssetPaths& assets,
+                                               const std::string& relative) {
+    voxelgame::VoxelModelRenderMesh mesh;
+    const voxelgame::AssetPaths::Resolved file = assets.Resolve(relative);
+    if (!file.found) {
+        TraceLog(LOG_WARNING, "VOXEL: model '%s' not found", relative.c_str());
+        return mesh;
+    }
+    const auto text = ReadTextFile(file.path);
+    if (!text) {
+        TraceLog(LOG_WARNING, "VOXEL: model '%s' unreadable", file.path.c_str());
+        return mesh;
+    }
+    std::string error = "unknown";
+    const auto model = voxelgame::vmodel::ParseVoxelModel(*text, error);
+    if (!model) {
+        TraceLog(LOG_WARNING, "VOXEL: model '%s' invalid (%s)", file.path.c_str(), error.c_str());
+        return mesh;
+    }
+    if (!mesh.Upload(*model)) {
+        TraceLog(LOG_WARNING, "VOXEL: model '%s' failed to upload", file.path.c_str());
+        return mesh;
+    }
+    TraceLog(LOG_INFO, "VOXEL: loaded model '%s' (%zu parts)", file.path.c_str(),
+             mesh.PartCount());
+    return mesh;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -324,6 +367,13 @@ int main(int argc, char* argv[]) {
                                    generator.FillColumn(w, cx, cz);
                                });
         voxelgame::ChunkMesher mesher;
+
+        // M5: two hierarchical voxel models shown standing near spawn. Declared
+        // here so their GPU meshes are freed before the window closes.
+        const voxelgame::VoxelModelRenderMesh humanoidModel =
+            LoadVoxelModel(assets, "models/humanoid.vxm.json");
+        const voxelgame::VoxelModelRenderMesh chickenModel =
+            LoadVoxelModel(assets, "models/chicken.vxm.json");
 
         // Replay the saved player edits: stored now, re-applied as each column loads.
         if (loadedSave) {
@@ -454,6 +504,20 @@ int main(int argc, char* argv[]) {
             meshSection(section[0], section[1], section[2]);
         }
         refreshTotals();
+
+        // Stand the two demo models on the ground a few blocks ahead of spawn.
+        const int modelZ = playerChunkZ * voxelgame::ChunkSection::Size + 3;
+        const int humanoidX = playerChunkX * voxelgame::ChunkSection::Size + 11;
+        const int chickenX = playerChunkX * voxelgame::ChunkSection::Size + 5;
+        constexpr float kHumanoidYaw = 0.6F;  // turned so the hierarchy reads in 3D
+        const voxelgame::vmodel::Vec3 humanoidPos{
+            static_cast<float>(humanoidX),
+            static_cast<float>(SurfaceY(world, humanoidX, modelZ) + 1),
+            static_cast<float>(modelZ)};
+        const voxelgame::vmodel::Vec3 chickenPos{
+            static_cast<float>(chickenX),
+            static_cast<float>(SurfaceY(world, chickenX, modelZ) + 1),
+            static_cast<float>(modelZ)};
 
         if (meshError) {
             result = 4;
@@ -632,6 +696,23 @@ int main(int argc, char* argv[]) {
                 for (std::size_t k = 0; k < visible.size(); ++k) {
                     visible[k]->DrawLayer(visiblePos[k], voxelgame::RenderLayer::Opaque);
                 }
+
+                // Voxel models: opaque, vertex-coloured, their own default shader.
+                {
+                    using voxelgame::vmodel::Mat4;
+                    if (humanoidModel.Ready()) {
+                        humanoidModel.Draw(
+                            Mat4::Translate(humanoidPos.x, humanoidPos.y, humanoidPos.z) *
+                            Mat4::RotateXYZ({0.0F, kHumanoidYaw, 0.0F}) *
+                            Mat4::Scale(humanoidModel.VoxelSize()));
+                    }
+                    if (chickenModel.Ready()) {
+                        chickenModel.Draw(
+                            Mat4::Translate(chickenPos.x, chickenPos.y, chickenPos.z) *
+                            Mat4::Scale(chickenModel.VoxelSize()));
+                    }
+                }
+
                 // Pass 2: cutout -- alpha-tested, still writes depth.
                 voxelgame::SetTilingShaderAlphaCutoff(tilingShader, 0.5F);
                 for (std::size_t k = 0; k < visible.size(); ++k) {
@@ -714,8 +795,10 @@ int main(int argc, char* argv[]) {
                                     : player.OnGround()   ? "grounded"
                                                           : "airborne"),
                          24, 148, 18, LIGHTGRAY);
-                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s", GetFPS(), blockAtlas.width,
-                                    blockAtlas.height, atlasSourceLabel),
+                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Models: %i+%i parts", GetFPS(),
+                                    blockAtlas.width, blockAtlas.height, atlasSourceLabel,
+                                    static_cast<int>(humanoidModel.PartCount()),
+                                    static_cast<int>(chickenModel.PartCount())),
                          24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Held: %.*s  (Q/E or X/Y)",
                                     static_cast<int>(
@@ -741,7 +824,11 @@ int main(int argc, char* argv[]) {
                 EndDrawing();
 
                 ++renderedFrames;
-                if (smokeWindow && renderedFrames >= 3) {
+                const int smokeFrames = GetArgvValue(argc, argv, "--screenshot") ? 45 : 3;
+                if (smokeWindow && renderedFrames >= smokeFrames) {
+                    if (const char* shot = GetArgvValue(argc, argv, "--screenshot")) {
+                        TakeScreenshot(shot);
+                    }
                     break;
                 }
             }
