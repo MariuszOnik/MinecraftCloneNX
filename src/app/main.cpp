@@ -52,6 +52,13 @@ constexpr int kColumnBudget = 2;      // new columns generated per frame
 constexpr double kMeshBudgetMs = 4.0;  // time spent (re)meshing per frame
 
 constexpr float kReach = 5.0F;
+
+// Isometric view: a fixed 45deg / ~35.26deg (true 2:1) angle, orthographic,
+// following the player. Movement is relative to this yaw, not the mouse look.
+constexpr float kIsoYaw = 0.78539816F;
+constexpr float kIsoPitch = 0.61547971F;
+constexpr float kIsoDistance = 32.0F;
+constexpr float kIsoOrthoHeight = 26.0F;
 constexpr voxelgame::BlockId kPalette[] = {
     voxelgame::blocks::Grass,     voxelgame::blocks::Dirt,      voxelgame::blocks::Stone,
     voxelgame::blocks::Cobblestone, voxelgame::blocks::Planks,   voxelgame::blocks::Wood,
@@ -586,12 +593,13 @@ int main(int argc, char* argv[]) {
             // M6: camera views. FPS = eye camera, avatar hidden. Third-person =
             // spring arm behind the head. Free-cam = detached fly camera for
             // building; the player stands still.
-            enum class CameraView { Fps, ThirdPerson, FreeCam };
-            constexpr int kCameraViewCount = 3;
+            enum class CameraView { Fps, ThirdPerson, FreeCam, Isometric };
+            constexpr int kCameraViewCount = 4;
             CameraView cameraView = smokeWindow ? CameraView::ThirdPerson : CameraView::Fps;
             if (const char* v = GetArgvValue(argc, argv, "--camera")) {
                 cameraView = std::strcmp(v, "free") == 0     ? CameraView::FreeCam
                              : std::strcmp(v, "3rd") == 0    ? CameraView::ThirdPerson
+                             : std::strcmp(v, "iso") == 0    ? CameraView::Isometric
                                                             : CameraView::Fps;
             }
             Vector3 freeCamPos{};
@@ -671,11 +679,16 @@ int main(int argc, char* argv[]) {
                 const float cp = std::cos(pitch);
                 const float sp = std::sin(pitch);
                 const Vector3 forward{sy * cp, sp, -cy * cp};
-                const Vector3 forwardFlat{sy, 0.0F, -cy};
-                const Vector3 rightFlat{cy, 0.0F, sy};
+                const Vector3 rightFlat{cy, 0.0F, sy};  // free-cam strafe basis
 
-                float wishX = forwardFlat.x * in.moveForward + rightFlat.x * in.moveStrafe;
-                float wishZ = forwardFlat.z * in.moveForward + rightFlat.z * in.moveStrafe;
+                // In isometric the camera is fixed, so the character walks
+                // relative to the iso yaw rather than where the mouse points.
+                const bool isoView = cameraView == CameraView::Isometric;
+                const float moveYaw = isoView ? kIsoYaw : yaw;
+                const float mfx = std::sin(moveYaw);
+                const float mfz = -std::cos(moveYaw);
+                float wishX = mfx * in.moveForward + (-mfz) * in.moveStrafe;
+                float wishZ = mfz * in.moveForward + mfx * in.moveStrafe;
                 const float wishLen = std::sqrt(wishX * wishX + wishZ * wishZ);
                 if (wishLen > 1.0F) {
                     wishX /= wishLen;
@@ -722,7 +735,19 @@ int main(int argc, char* argv[]) {
                 }
 
                 const voxelgame::Vec3 eye = player.EyePosition();
-                if (freeCam) {
+                camera.projection = isoView ? CAMERA_ORTHOGRAPHIC : CAMERA_PERSPECTIVE;
+                camera.fovy = isoView ? kIsoOrthoHeight : 70.0F;
+                if (isoView) {
+                    // Fixed angle, orthographic, following the player.
+                    const Vector3 isoDir{std::sin(kIsoYaw) * std::cos(kIsoPitch),
+                                         -std::sin(kIsoPitch),
+                                         -std::cos(kIsoYaw) * std::cos(kIsoPitch)};
+                    const Vector3 focus{eye.x, eye.y - 0.4F, eye.z};
+                    camera.position = {focus.x - isoDir.x * kIsoDistance,
+                                       focus.y - isoDir.y * kIsoDistance,
+                                       focus.z - isoDir.z * kIsoDistance};
+                    camera.target = focus;
+                } else if (freeCam) {
                     if (enteredFreeCam) {
                         freeCamPos = {eye.x, eye.y, eye.z};
                     }
@@ -776,13 +801,23 @@ int main(int argc, char* argv[]) {
                                 kPaletteCount;
                 }
 
-                // Break/place from the active camera: the eye in FPS/third-person,
-                // the fly camera (with a longer reach) when building in free-cam.
+                // Break/place from the active camera: the eye + look direction in
+                // FPS/third-person; the fly / iso camera (longer reach) otherwise.
+                const bool camRay = freeCam || isoView;
                 const voxelgame::Vec3 castOrigin =
-                    freeCam ? voxelgame::Vec3{camera.position.x, camera.position.y, camera.position.z}
-                            : eye;
-                const voxelgame::RaycastHit target = voxelgame::Raycast(
-                    world, castOrigin, {forward.x, forward.y, forward.z}, freeCam ? 8.0F : kReach);
+                    camRay ? voxelgame::Vec3{camera.position.x, camera.position.y, camera.position.z}
+                           : eye;
+                voxelgame::Vec3 castDir{forward.x, forward.y, forward.z};
+                if (camRay) {
+                    const float dx = camera.target.x - camera.position.x;
+                    const float dy = camera.target.y - camera.position.y;
+                    const float dz = camera.target.z - camera.position.z;
+                    const float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    castDir = len > 0.0F ? voxelgame::Vec3{dx / len, dy / len, dz / len} : castDir;
+                }
+                const float reach = !camRay ? kReach : (isoView ? kIsoDistance + 10.0F : 8.0F);
+                const voxelgame::RaycastHit target =
+                    voxelgame::Raycast(world, castOrigin, castDir, reach);
 
                 bool worldChanged = false;
                 if (target.hit && in.breakBlock) {
@@ -814,9 +849,16 @@ int main(int argc, char* argv[]) {
                 BeginDrawing();
                 ClearBackground(Color{18, 22, 31, 255});
 
+                // MakeFrustum assumes a perspective cone; for the orthographic
+                // iso camera, widen the cone so it never culls a visible chunk
+                // (over-drawing a few far ones is fine at this load radius).
+                Camera3D frustumCamera = camera;
+                if (isoView) {
+                    frustumCamera.fovy = 60.0F;
+                }
                 const voxelgame::Frustum frustum = voxelgame::MakeFrustum(
-                    camera, static_cast<float>(GetScreenWidth()) /
-                                static_cast<float>(GetScreenHeight()));
+                    frustumCamera, static_cast<float>(GetScreenWidth()) /
+                                       static_cast<float>(GetScreenHeight()));
                 int drawnSections = 0;
 
                 // Only the sections in view, computed once for all passes. Close
@@ -956,7 +998,8 @@ int main(int argc, char* argv[]) {
                 const voxelgame::vmodel::AnimationClip* gaitNow = playerAnimator.Current();
                 const char* viewName = cameraView == CameraView::Fps          ? "fps"
                                        : cameraView == CameraView::ThirdPerson ? "3rd-person"
-                                                                              : "free-cam";
+                                       : cameraView == CameraView::FreeCam     ? "free-cam"
+                                                                              : "isometric";
                 DrawText(TextFormat("FPS: %i  Cam: %s  Gait: %s%s  Atlas: %s", GetFPS(), viewName,
                                     gaitNow != nullptr ? gaitNow->name.c_str() : "rest",
                                     playerAnimator.Blending() ? " >" : "", atlasSourceLabel),
