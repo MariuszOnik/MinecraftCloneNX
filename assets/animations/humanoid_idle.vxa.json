@@ -1,0 +1,27 @@
+{
+  "name": "humanoid_idle",
+  "duration": 3.0,
+  "loop": true,
+  "tracks": [
+    { "part": "torso", "position": [
+      { "t": 0.0, "value": [0, 0, 0] },
+      { "t": 1.5, "value": [0, 0.15, 0] },
+      { "t": 3.0, "value": [0, 0, 0] }
+    ] },
+    { "part": "head", "rotation": [
+      { "t": 0.0, "value": [0, 6, 0] },
+      { "t": 1.5, "value": [0, -6, 0] },
+      { "t": 3.0, "value": [0, 6, 0] }
+    ] },
+    { "part": "arm.L", "rotation": [
+      { "t": 0.0, "value": [3, 0, 0] },
+      { "t": 1.5, "value": [-3, 0, 0] },
+      { "t": 3.0, "value": [3, 0, 0] }
+    ] },
+    { "part": "arm.R", "rotation": [
+      { "t": 0.0, "value": [-3, 0, 0] },
+      { "t": 1.5, "value": [3, 0, 0] },
+      { "t": 3.0, "value": [-3, 0, 0] }
+    ] }
+  ]
+}

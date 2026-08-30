@@ -182,6 +182,32 @@ int main() {
         b[0].rotationDegrees = {10.0F, 0.0F, 0.0F};
         const std::vector<PartPose> mid = BlendPoses(a, b, 0.5F);
         Expect(Near(mid[0].rotationDegrees.x, 5.0F), "BlendPoses is a linear midpoint");
+
+        // Animator: cross-fade from one clip to another.
+        if (clip && model) {
+            AnimationClip flat = *clip;  // "body" held at 0 deg the whole time
+            flat.tracks[0].rotation = {{0.0F, {0.0F, 0.0F, 0.0F}}};
+            AnimationClip bent = *clip;
+            bent.tracks[0].rotation = {{0.0F, {90.0F, 0.0F, 0.0F}}};
+
+            Animator anim;
+            anim.Play(&flat, 0.0F);
+            Expect(anim.Current() == &flat && !anim.Blending(), "first clip starts instantly");
+
+            anim.Play(&bent, 0.4F);
+            Expect(anim.Current() == &bent && anim.Blending(), "switching starts a blend");
+            anim.Update(0.2F);  // halfway through the fade
+            const std::vector<PartPose> half = anim.Pose(*model);
+            Expect(Near(half[0].rotationDegrees.x, 45.0F), "pose is halfway between the clips");
+
+            anim.Play(&bent, 0.4F);  // re-selecting the current clip is a no-op
+            Expect(anim.Blending(), "re-Play of the active clip does not restart the fade");
+
+            anim.Update(0.5F);  // past the end of the fade
+            Expect(!anim.Blending(), "the blend completes");
+            const std::vector<PartPose> done = anim.Pose(*model);
+            Expect(Near(done[0].rotationDegrees.x, 90.0F), "settled on the incoming clip");
+        }
     }
 
     if (failures == 0) {

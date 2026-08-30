@@ -208,4 +208,38 @@ std::vector<PartPose> AnimationState::Sample(const VoxelModel& model) const {
     return SamplePose(*clip, model, time);
 }
 
+void Animator::Play(const AnimationClip* clip, const float fadeSeconds) {
+    if (clip == current_.clip) {
+        return;
+    }
+    previous_ = current_;
+    current_ = AnimationState{clip, 0.0F, 1.0F};
+    if (fadeSeconds > 0.0F && previous_.clip != nullptr) {
+        weight_ = 0.0F;
+        weightRate_ = 1.0F / fadeSeconds;
+    } else {
+        weight_ = 1.0F;
+        weightRate_ = 0.0F;
+        previous_ = AnimationState{};
+    }
+}
+
+void Animator::Update(const float dt, std::vector<std::string>* firedEvents) {
+    current_.Advance(dt, firedEvents);
+    if (weight_ < 1.0F) {
+        previous_.Advance(dt, nullptr);
+        weight_ = std::min(1.0F, weight_ + weightRate_ * dt);
+        if (weight_ >= 1.0F) {
+            previous_ = AnimationState{};
+        }
+    }
+}
+
+std::vector<PartPose> Animator::Pose(const VoxelModel& model) const {
+    if (weight_ >= 1.0F || previous_.clip == nullptr) {
+        return current_.Sample(model);
+    }
+    return BlendPoses(previous_.Sample(model), current_.Sample(model), weight_);
+}
+
 }  // namespace voxelgame::vmodel

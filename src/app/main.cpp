@@ -401,12 +401,20 @@ int main(int argc, char* argv[]) {
             LoadVoxelModel(assets, "models/humanoid.vxm.json");
         const voxelgame::VoxelModelRenderMesh chickenModel =
             LoadVoxelModel(assets, "models/chicken.vxm.json");
+        const auto humanoidIdle = LoadAnimationClip(assets, "animations/humanoid_idle.vxa.json");
         const auto humanoidWalk = LoadAnimationClip(assets, "animations/humanoid_walk.vxa.json");
+        const auto humanoidRun = LoadAnimationClip(assets, "animations/humanoid_run.vxa.json");
+        const auto chickenIdle = LoadAnimationClip(assets, "animations/chicken_idle.vxa.json");
         const auto chickenWalk = LoadAnimationClip(assets, "animations/chicken_walk.vxa.json");
-        voxelgame::vmodel::AnimationState humanoidAnim{
-            humanoidWalk ? &*humanoidWalk : nullptr, 0.0F, 1.0F};
-        voxelgame::vmodel::AnimationState chickenAnim{
-            chickenWalk ? &*chickenWalk : nullptr, 0.0F, 1.0F};
+        const auto clipPtr = [](const std::optional<voxelgame::vmodel::AnimationClip>& c) {
+            return c ? &*c : nullptr;
+        };
+        voxelgame::vmodel::Animator humanoidAnimator;
+        voxelgame::vmodel::Animator chickenAnimator;
+        humanoidAnimator.Play(clipPtr(humanoidIdle), 0.0F);
+        chickenAnimator.Play(clipPtr(chickenIdle), 0.0F);
+        double chickenClipTimer = 0.0;
+        bool chickenWalking = false;
 
         // Replay the saved player edits: stored now, re-applied as each column loads.
         if (loadedSave) {
@@ -636,10 +644,33 @@ int main(int argc, char* argv[]) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
                 player.Step(world, {wishX * speed, 0.0F, wishZ * speed}, in.jump, dt);
 
-                // M5 slice 2: the demo models walk in place -- their parts move
-                // every frame while the geometry is never re-meshed.
-                humanoidAnim.Advance(dt);
-                chickenAnim.Advance(dt);
+                // M5: the humanoid mirrors the player's gait (idle/walk/run,
+                // cross-faded); the chicken alternates idle<->walk on a timer.
+                // Parts move every frame; the geometry is never re-meshed.
+                {
+                    const voxelgame::vmodel::AnimationClip* moving =
+                        in.sprint && humanoidRun ? clipPtr(humanoidRun) : clipPtr(humanoidWalk);
+                    if (moving == nullptr) {
+                        moving = clipPtr(humanoidWalk);
+                    }
+                    const voxelgame::vmodel::AnimationClip* target =
+                        (wishLen > 0.1F && moving != nullptr) ? moving : clipPtr(humanoidIdle);
+                    if (target != nullptr) {
+                        humanoidAnimator.Play(target, 0.18F);
+                    }
+                    chickenClipTimer += dt;
+                    if (chickenClipTimer > 2.5) {
+                        chickenClipTimer = 0.0;
+                        chickenWalking = !chickenWalking;
+                        const auto* next =
+                            chickenWalking ? clipPtr(chickenWalk) : clipPtr(chickenIdle);
+                        if (next != nullptr) {
+                            chickenAnimator.Play(next, 0.25F);
+                        }
+                    }
+                    humanoidAnimator.Update(dt);
+                    chickenAnimator.Update(dt);
+                }
 
                 const voxelgame::Vec3 eye = player.EyePosition();
                 camera.position = {eye.x, eye.y, eye.z};
@@ -743,13 +774,13 @@ int main(int argc, char* argv[]) {
                             Mat4::Translate(humanoidPos.x, humanoidPos.y, humanoidPos.z) *
                             Mat4::RotateXYZ({0.0F, kHumanoidYaw, 0.0F}) *
                             Mat4::Scale(humanoidModel.VoxelSize());
-                        humanoidModel.Draw(root, humanoidAnim.Sample(humanoidModel.Model()));
+                        humanoidModel.Draw(root, humanoidAnimator.Pose(humanoidModel.Model()));
                     }
                     if (chickenModel.Ready()) {
                         const Mat4 root =
                             Mat4::Translate(chickenPos.x, chickenPos.y, chickenPos.z) *
                             Mat4::Scale(chickenModel.VoxelSize());
-                        chickenModel.Draw(root, chickenAnim.Sample(chickenModel.Model()));
+                        chickenModel.Draw(root, chickenAnimator.Pose(chickenModel.Model()));
                     }
                 }
 
@@ -835,11 +866,11 @@ int main(int argc, char* argv[]) {
                                     : player.OnGround()   ? "grounded"
                                                           : "airborne"),
                          24, 148, 18, LIGHTGRAY);
-                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Models: %i+%i parts %s", GetFPS(),
+                const voxelgame::vmodel::AnimationClip* hClipNow = humanoidAnimator.Current();
+                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Model: %s%s", GetFPS(),
                                     blockAtlas.width, blockAtlas.height, atlasSourceLabel,
-                                    static_cast<int>(humanoidModel.PartCount()),
-                                    static_cast<int>(chickenModel.PartCount()),
-                                    (humanoidWalk || chickenWalk) ? "(walking)" : ""),
+                                    hClipNow != nullptr ? hClipNow->name.c_str() : "rest",
+                                    humanoidAnimator.Blending() ? " >" : ""),
                          24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Held: %.*s  (Q/E or X/Y)",
                                     static_cast<int>(

@@ -1,0 +1,24 @@
+{
+  "name": "chicken_idle",
+  "duration": 2.4,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "position": [
+      { "t": 0.0, "value": [0, 0, 0] },
+      { "t": 1.2, "value": [0, 0.15, 0] },
+      { "t": 2.4, "value": [0, 0, 0] }
+    ] },
+    { "part": "head", "rotation": [
+      { "t": 0.0, "value": [0, 0, 0] },
+      { "t": 0.5, "value": [22, 0, 0] },
+      { "t": 0.8, "value": [0, 0, 0] },
+      { "t": 1.6, "value": [0, 14, 0] },
+      { "t": 2.4, "value": [0, 0, 0] }
+    ] },
+    { "part": "tail", "rotation": [
+      { "t": 0.0, "value": [0, 0, 0] },
+      { "t": 1.2, "value": [-10, 0, 0] },
+      { "t": 2.4, "value": [0, 0, 0] }
+    ] }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "humanoid_run",
+  "duration": 0.6,
+  "loop": true,
+  "tracks": [
+    { "part": "leg.L", "rotation": [
+      { "t": 0.0, "value": [52, 0, 0] },
+      { "t": 0.3, "value": [-48, 0, 0] },
+      { "t": 0.6, "value": [52, 0, 0] }
+    ] },
+    { "part": "leg.R", "rotation": [
+      { "t": 0.0, "value": [-48, 0, 0] },
+      { "t": 0.3, "value": [52, 0, 0] },
+      { "t": 0.6, "value": [-48, 0, 0] }
+    ] },
+    { "part": "arm.L", "rotation": [
+      { "t": 0.0, "value": [-58, 0, 0] },
+      { "t": 0.3, "value": [58, 0, 0] },
+      { "t": 0.6, "value": [-58, 0, 0] }
+    ] },
+    { "part": "arm.R", "rotation": [
+      { "t": 0.0, "value": [58, 0, 0] },
+      { "t": 0.3, "value": [-58, 0, 0] },
+      { "t": 0.6, "value": [58, 0, 0] }
+    ] },
+    { "part": "torso",
+      "position": [
+        { "t": 0.0, "value": [0, 0, 0] },
+        { "t": 0.15, "value": [0, 0.8, 0] },
+        { "t": 0.3, "value": [0, 0, 0] },
+        { "t": 0.45, "value": [0, 0.8, 0] },
+        { "t": 0.6, "value": [0, 0, 0] }
+      ],
+      "rotation": [
+        { "t": 0.0, "value": [14, 0, 0] },
+        { "t": 0.6, "value": [14, 0, 0] }
+      ] }
+  ],
+  "events": [
+    { "t": 0.0, "name": "footstep" },
+    { "t": 0.3, "name": "footstep" }
+  ]
+}

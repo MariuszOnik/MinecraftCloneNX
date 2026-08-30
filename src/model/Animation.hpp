@@ -68,4 +68,28 @@ struct AnimationState {
     [[nodiscard]] std::vector<PartPose> Sample(const VoxelModel& model) const;
 };
 
+// Plays one clip at a time and cross-fades linearly when switched to another.
+// Both the outgoing and incoming clips keep advancing during the fade, so a
+// walk->run switch blends two moving poses rather than snapping.
+class Animator {
+public:
+    // Switches to `clip` over `fadeSeconds` (0 = instant). Re-selecting the clip
+    // already playing is a no-op, so it is safe to call every frame.
+    void Play(const AnimationClip* clip, float fadeSeconds = 0.15F);
+
+    // Advances the play head(s); events crossed by the *incoming* clip are
+    // appended to `firedEvents` (pass null to ignore).
+    void Update(float dt, std::vector<std::string>* firedEvents = nullptr);
+
+    [[nodiscard]] std::vector<PartPose> Pose(const VoxelModel& model) const;
+    [[nodiscard]] const AnimationClip* Current() const noexcept { return current_.clip; }
+    [[nodiscard]] bool Blending() const noexcept { return weight_ < 1.0F; }
+
+private:
+    AnimationState current_{};
+    AnimationState previous_{};
+    float weight_ = 1.0F;     // 0..1, share of `current_` in the blend
+    float weightRate_ = 0.0F;  // per second
+};
+
 }  // namespace voxelgame::vmodel
