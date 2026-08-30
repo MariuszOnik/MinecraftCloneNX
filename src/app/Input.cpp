@@ -55,6 +55,7 @@ FrameInput PollFrameInput(const bool mouseLook) {
     input.breakBlock = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     input.placeBlock = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
     input.saveRequested = IsKeyPressed(KEY_F5);
+    input.cycleView = IsKeyPressed(KEY_C);
     input.cycleBlock = static_cast<int>(GetMouseWheelMove());
     if (IsKeyPressed(KEY_Q)) {
         --input.cycleBlock;
@@ -98,6 +99,8 @@ FrameInput PollFrameInput(const bool mouseLook) {
         input.sprint = input.sprint || l1Held;
         input.toggleMouseLook =
             input.toggleMouseLook || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
+        input.cycleView =
+            input.cycleView || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_LEFT);
         input.breakBlock =
             input.breakBlock || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2);
         input.placeBlock =

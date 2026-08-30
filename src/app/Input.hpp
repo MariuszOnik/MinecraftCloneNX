@@ -15,6 +15,7 @@ struct FrameInput {
     bool breakBlock = false;    // pressed this frame
     bool placeBlock = false;    // pressed this frame
     bool saveRequested = false; // pressed this frame (F5, or L1 + A on the pad)
+    bool cycleView = false;     // pressed this frame (C key, or Select/Minus)
     int cycleBlock = 0;         // -1 / 0 / +1, change the held block
 };
 

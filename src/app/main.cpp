@@ -423,21 +423,21 @@ int main(int argc, char* argv[]) {
 
         // M5: two hierarchical voxel models shown standing near spawn. Declared
         // here so their GPU meshes are freed before the window closes.
-        const voxelgame::VoxelModelRenderMesh humanoidModel =
-            LoadVoxelModel(assets, "models/humanoid");
+        // The humanoid is the player's own avatar; the chicken is a demo NPC.
+        const voxelgame::VoxelModelRenderMesh playerModel = LoadVoxelModel(assets, "models/humanoid");
         const voxelgame::VoxelModelRenderMesh chickenModel =
             LoadVoxelModel(assets, "models/chicken");
-        const auto humanoidIdle = LoadAnimationClip(assets, "animations/humanoid_idle");
-        const auto humanoidWalk = LoadAnimationClip(assets, "animations/humanoid_walk");
-        const auto humanoidRun = LoadAnimationClip(assets, "animations/humanoid_run");
+        const auto playerIdle = LoadAnimationClip(assets, "animations/humanoid_idle");
+        const auto playerWalk = LoadAnimationClip(assets, "animations/humanoid_walk");
+        const auto playerRun = LoadAnimationClip(assets, "animations/humanoid_run");
         const auto chickenIdle = LoadAnimationClip(assets, "animations/chicken_idle");
         const auto chickenWalk = LoadAnimationClip(assets, "animations/chicken_walk");
         const auto clipPtr = [](const std::optional<voxelgame::vmodel::AnimationClip>& c) {
             return c ? &*c : nullptr;
         };
-        voxelgame::vmodel::Animator humanoidAnimator;
+        voxelgame::vmodel::Animator playerAnimator;
         voxelgame::vmodel::Animator chickenAnimator;
-        humanoidAnimator.Play(clipPtr(humanoidIdle), 0.0F);
+        playerAnimator.Play(clipPtr(playerIdle), 0.0F);
         chickenAnimator.Play(clipPtr(chickenIdle), 0.0F);
         double chickenClipTimer = 0.0;
         bool chickenWalking = false;
@@ -572,23 +572,22 @@ int main(int argc, char* argv[]) {
         }
         refreshTotals();
 
-        // Stand the two demo models on the ground a few blocks ahead of spawn.
-        const int modelZ = playerChunkZ * voxelgame::ChunkSection::Size + 3;
-        const int humanoidX = playerChunkX * voxelgame::ChunkSection::Size + 11;
+        // Stand the demo NPC chicken on the ground a few blocks ahead of spawn.
         const int chickenX = playerChunkX * voxelgame::ChunkSection::Size + 5;
-        constexpr float kHumanoidYaw = 0.6F;  // turned so the hierarchy reads in 3D
-        const voxelgame::vmodel::Vec3 humanoidPos{
-            static_cast<float>(humanoidX),
-            static_cast<float>(SurfaceY(world, humanoidX, modelZ) + 1),
-            static_cast<float>(modelZ)};
+        const int chickenZ = playerChunkZ * voxelgame::ChunkSection::Size + 3;
         const voxelgame::vmodel::Vec3 chickenPos{
             static_cast<float>(chickenX),
-            static_cast<float>(SurfaceY(world, chickenX, modelZ) + 1),
-            static_cast<float>(modelZ)};
+            static_cast<float>(SurfaceY(world, chickenX, chickenZ) + 1),
+            static_cast<float>(chickenZ)};
 
         if (meshError) {
             result = 4;
         } else {
+            // M6: camera views. FPS puts the camera in the avatar's eyes and
+            // hides the model; third-person pulls back so you watch it walk.
+            enum class CameraView { Fps, ThirdPerson };
+            CameraView cameraView = smokeWindow ? CameraView::ThirdPerson : CameraView::Fps;
+            float avatarYaw = 0.12F;  // smoothed toward the movement direction
             float yaw = loadedSave ? loadedSave->yaw : 0.12F;  // face the chamber of panes
             float pitch = loadedSave ? loadedSave->pitch : 0.02F;
             bool mouseLook = !smokeWindow;
@@ -670,19 +669,31 @@ int main(int argc, char* argv[]) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
                 player.Step(world, {wishX * speed, 0.0F, wishZ * speed}, in.jump, dt);
 
-                // M5: the humanoid mirrors the player's gait (idle/walk/run,
-                // cross-faded); the chicken alternates idle<->walk on a timer.
-                // Parts move every frame; the geometry is never re-meshed.
+                if (in.cycleView) {
+                    cameraView = cameraView == CameraView::Fps ? CameraView::ThirdPerson
+                                                              : CameraView::Fps;
+                }
+
+                // The avatar turns toward where it is moving; when standing it
+                // keeps its last facing.
+                const bool moving = wishLen > 0.05F;
+                if (moving) {
+                    avatarYaw = std::atan2(wishX, -wishZ);
+                }
+
+                // M5/M6: the avatar's gait follows the player's speed (idle/walk/
+                // run, cross-faded); the chicken NPC alternates idle<->walk.
+                // Parts move every frame; geometry is never re-meshed.
                 {
-                    const voxelgame::vmodel::AnimationClip* moving =
-                        in.sprint && humanoidRun ? clipPtr(humanoidRun) : clipPtr(humanoidWalk);
-                    if (moving == nullptr) {
-                        moving = clipPtr(humanoidWalk);
+                    const voxelgame::vmodel::AnimationClip* gait =
+                        in.sprint && playerRun ? clipPtr(playerRun) : clipPtr(playerWalk);
+                    if (gait == nullptr) {
+                        gait = clipPtr(playerWalk);
                     }
                     const voxelgame::vmodel::AnimationClip* target =
-                        (wishLen > 0.1F && moving != nullptr) ? moving : clipPtr(humanoidIdle);
+                        (moving && gait != nullptr) ? gait : clipPtr(playerIdle);
                     if (target != nullptr) {
-                        humanoidAnimator.Play(target, 0.18F);
+                        playerAnimator.Play(target, 0.18F);
                     }
                     chickenClipTimer += dt;
                     if (chickenClipTimer > 2.5) {
@@ -694,13 +705,32 @@ int main(int argc, char* argv[]) {
                             chickenAnimator.Play(next, 0.25F);
                         }
                     }
-                    humanoidAnimator.Update(dt);
+                    playerAnimator.Update(dt);
                     chickenAnimator.Update(dt);
                 }
 
                 const voxelgame::Vec3 eye = player.EyePosition();
-                camera.position = {eye.x, eye.y, eye.z};
-                camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
+                if (cameraView == CameraView::Fps) {
+                    camera.position = {eye.x, eye.y, eye.z};
+                    camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
+                } else {
+                    // Third-person: a spring arm behind the head along the look
+                    // direction, pulled in so it never sits inside a solid block.
+                    constexpr float kBoomLength = 4.5F;
+                    float boom = kBoomLength;
+                    for (float d = 0.5F; d <= kBoomLength; d += 0.2F) {
+                        const int bx = static_cast<int>(std::floor(eye.x - forward.x * d));
+                        const int by = static_cast<int>(std::floor(eye.y - forward.y * d));
+                        const int bz = static_cast<int>(std::floor(eye.z - forward.z * d));
+                        if (voxelgame::IsCollidableBlock(world.GetBlock(bx, by, bz))) {
+                            boom = std::max(0.6F, d - 0.3F);
+                            break;
+                        }
+                    }
+                    camera.position = {eye.x - forward.x * boom, eye.y - forward.y * boom,
+                                       eye.z - forward.z * boom};
+                    camera.target = {eye.x, eye.y, eye.z};
+                }
 
                 playerChunkX =
                     voxelgame::World::ToChunk(static_cast<int>(std::floor(player.Position().x)));
@@ -795,12 +825,12 @@ int main(int argc, char* argv[]) {
                 // Voxel models: opaque, vertex-coloured, their own default shader.
                 {
                     using voxelgame::vmodel::Mat4;
-                    if (humanoidModel.Ready()) {
-                        const Mat4 root =
-                            Mat4::Translate(humanoidPos.x, humanoidPos.y, humanoidPos.z) *
-                            Mat4::RotateXYZ({0.0F, kHumanoidYaw, 0.0F}) *
-                            Mat4::Scale(humanoidModel.VoxelSize());
-                        humanoidModel.Draw(root, humanoidAnimator.Pose(humanoidModel.Model()));
+                    if (playerModel.Ready() && cameraView != CameraView::Fps) {
+                        const voxelgame::Vec3 feet = player.Position();
+                        const Mat4 root = Mat4::Translate(feet.x, feet.y, feet.z) *
+                                          Mat4::RotateXYZ({0.0F, -avatarYaw, 0.0F}) *
+                                          Mat4::Scale(playerModel.VoxelSize());
+                        playerModel.Draw(root, playerAnimator.Pose(playerModel.Model()));
                     }
                     if (chickenModel.Ready()) {
                         const Mat4 root =
@@ -892,18 +922,18 @@ int main(int argc, char* argv[]) {
                                     : player.OnGround()   ? "grounded"
                                                           : "airborne"),
                          24, 148, 18, LIGHTGRAY);
-                const voxelgame::vmodel::AnimationClip* hClipNow = humanoidAnimator.Current();
-                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Model: %s%s", GetFPS(),
-                                    blockAtlas.width, blockAtlas.height, atlasSourceLabel,
-                                    hClipNow != nullptr ? hClipNow->name.c_str() : "rest",
-                                    humanoidAnimator.Blending() ? " >" : ""),
+                const voxelgame::vmodel::AnimationClip* gaitNow = playerAnimator.Current();
+                DrawText(TextFormat("FPS: %i  Cam: %s  Gait: %s%s  Atlas: %s", GetFPS(),
+                                    cameraView == CameraView::Fps ? "fps" : "3rd-person",
+                                    gaitNow != nullptr ? gaitNow->name.c_str() : "rest",
+                                    playerAnimator.Blending() ? " >" : "", atlasSourceLabel),
                          24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Held: %.*s  (Q/E or X/Y)",
                                     static_cast<int>(
                                         voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.size()),
                                     voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.data()),
                          24, 192, 18, target.hit ? LIME : LIGHTGRAY);
-                DrawText("WASD/stick move  Space/A jump  ZR break  ZL place  Tab mouse  F5/L1+A save",
+                DrawText("WASD move  Space jump  ZR/ZL break/place  C camera  Tab mouse  F5 save",
                          24, 214, 15, GRAY);
 
                 if (GetTime() < saveFlashUntil) {
