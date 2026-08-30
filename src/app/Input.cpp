@@ -57,7 +57,8 @@ FrameInput PollFrameInput(const bool mouseLook) {
     input.placeBlock = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
     input.saveRequested = IsKeyPressed(KEY_F5);
     input.cycleView = IsKeyPressed(KEY_C);
-    input.cycleBlock = static_cast<int>(GetMouseWheelMove());
+    input.zoom = GetMouseWheelMove();
+    input.cycleBlock = 0;
     if (IsKeyPressed(KEY_Q)) {
         --input.cycleBlock;
     }

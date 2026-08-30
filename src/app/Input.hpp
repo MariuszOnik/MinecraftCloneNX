@@ -17,7 +17,8 @@ struct FrameInput {
     bool placeBlock = false;    // pressed this frame
     bool saveRequested = false; // pressed this frame (F5, or L1 + A on the pad)
     bool cycleView = false;     // pressed this frame (C key, or Select/Minus)
-    int cycleBlock = 0;         // -1 / 0 / +1, change the held block
+    int cycleBlock = 0;         // -1 / 0 / +1, change the held block (Q/E, X/Y)
+    float zoom = 0.0F;          // mouse-wheel delta (camera zoom, or block cycle)
 };
 
 // `mouseLook` gates reading the mouse delta (ignored while the cursor is free).

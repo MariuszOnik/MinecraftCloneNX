@@ -182,6 +182,17 @@ bool HasArgument(const int argc, char* argv[], const char* expected) {
     return false;
 }
 
+// Shortest-path angular interpolation (radians).
+float LerpAngle(const float from, const float to, const float t) {
+    constexpr float kPi = 3.14159265358979323846F;
+    float delta = std::fmod(to - from + kPi, 2.0F * kPi);
+    if (delta < 0.0F) {
+        delta += 2.0F * kPi;
+    }
+    delta -= kPi;
+    return from + delta * std::clamp(t, 0.0F, 1.0F);
+}
+
 const char* GetArgvValue(const int argc, char* argv[], const char* flag) {
     for (int index = 1; index + 1 < argc; ++index) {
         if (std::strcmp(argv[index], flag) == 0) {
@@ -603,7 +614,9 @@ int main(int argc, char* argv[]) {
                                                             : CameraView::Fps;
             }
             Vector3 freeCamPos{};
-            float avatarYaw = 0.12F;  // smoothed toward the movement direction
+            float avatarYaw = 0.12F;      // smoothed toward the movement direction
+            float isoZoom = kIsoOrthoHeight;  // ortho view height, wheel-adjustable
+            float thirdBoom = 4.5F;           // third-person distance, wheel-adjustable
             float yaw = loadedSave ? loadedSave->yaw : 0.12F;  // face the chamber of panes
             float pitch = loadedSave ? loadedSave->pitch : 0.02F;
             bool mouseLook = !smokeWindow;
@@ -672,6 +685,14 @@ int main(int argc, char* argv[]) {
                 }
                 const bool freeCam = cameraView == CameraView::FreeCam;
 
+                // Mouse wheel zooms the iso / third-person camera (it cycles the
+                // held block in the other views -- handled further down).
+                if (cameraView == CameraView::Isometric) {
+                    isoZoom = std::clamp(isoZoom - in.zoom * 3.0F, 9.0F, 60.0F);
+                } else if (cameraView == CameraView::ThirdPerson) {
+                    thirdBoom = std::clamp(thirdBoom - in.zoom * 0.6F, 1.8F, 9.0F);
+                }
+
                 yaw += in.lookYaw;
                 pitch = std::clamp(pitch + in.lookPitch, -1.55F, 1.55F);
                 const float cy = std::cos(yaw);
@@ -702,8 +723,16 @@ int main(int argc, char* argv[]) {
 
                 // Free-cam turns the character's gait off; other views drive it.
                 const bool moving = !freeCam && wishLen > 0.05F;
-                if (moving) {
-                    avatarYaw = std::atan2(wishX, -wishZ);
+                {
+                    // Face the walk direction while moving; face where the camera
+                    // aims while idle (except iso, which has no camera yaw).
+                    float faceYaw = avatarYaw;
+                    if (moving) {
+                        faceYaw = std::atan2(wishX, -wishZ);
+                    } else if (!isoView && !freeCam) {
+                        faceYaw = yaw;
+                    }
+                    avatarYaw = LerpAngle(avatarYaw, faceYaw, 12.0F * dt);
                 }
 
                 // M5/M6: the avatar's gait follows the player's speed (idle/walk/
@@ -736,7 +765,7 @@ int main(int argc, char* argv[]) {
 
                 const voxelgame::Vec3 eye = player.EyePosition();
                 camera.projection = isoView ? CAMERA_ORTHOGRAPHIC : CAMERA_PERSPECTIVE;
-                camera.fovy = isoView ? kIsoOrthoHeight : 70.0F;
+                camera.fovy = isoView ? isoZoom : 70.0F;
                 if (isoView) {
                     // Fixed angle, orthographic, following the player.
                     const Vector3 isoDir{std::sin(kIsoYaw) * std::cos(kIsoPitch),
@@ -764,22 +793,26 @@ int main(int argc, char* argv[]) {
                     camera.position = {eye.x, eye.y, eye.z};
                     camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
                 } else {
-                    // Third-person: a spring arm behind the head along the look
-                    // direction, pulled in so it never sits inside a solid block.
-                    constexpr float kBoomLength = 4.5F;
-                    float boom = kBoomLength;
-                    for (float d = 0.5F; d <= kBoomLength; d += 0.2F) {
-                        const int bx = static_cast<int>(std::floor(eye.x - forward.x * d));
-                        const int by = static_cast<int>(std::floor(eye.y - forward.y * d));
-                        const int bz = static_cast<int>(std::floor(eye.z - forward.z * d));
+                    // Third-person: a spring arm behind the head, offset to the
+                    // right shoulder so the avatar never blocks the crosshair,
+                    // and pulled in so it never sits inside a solid block.
+                    const float boomMax = thirdBoom;
+                    constexpr float kShoulder = 0.55F;
+                    const Vector3 rightArm{cy * kShoulder, 0.0F, sy * kShoulder};
+                    const Vector3 pivotP{eye.x + rightArm.x, eye.y, eye.z + rightArm.z};
+                    float boom = boomMax;
+                    for (float d = 0.5F; d <= boomMax; d += 0.2F) {
+                        const int bx = static_cast<int>(std::floor(pivotP.x - forward.x * d));
+                        const int by = static_cast<int>(std::floor(pivotP.y - forward.y * d));
+                        const int bz = static_cast<int>(std::floor(pivotP.z - forward.z * d));
                         if (voxelgame::IsCollidableBlock(world.GetBlock(bx, by, bz))) {
                             boom = std::max(0.6F, d - 0.3F);
                             break;
                         }
                     }
-                    camera.position = {eye.x - forward.x * boom, eye.y - forward.y * boom,
-                                       eye.z - forward.z * boom};
-                    camera.target = {eye.x, eye.y, eye.z};
+                    camera.position = {pivotP.x - forward.x * boom, pivotP.y - forward.y * boom,
+                                       pivotP.z - forward.z * boom};
+                    camera.target = pivotP;
                 }
 
                 playerChunkX =
@@ -796,8 +829,13 @@ int main(int argc, char* argv[]) {
                     saveFlashUntil = GetTime() + 2.0;
                 }
 
-                if (in.cycleBlock != 0) {
-                    heldBlock = ((heldBlock + in.cycleBlock) % kPaletteCount + kPaletteCount) %
+                // In FPS / free-cam the wheel also cycles the held block.
+                int blockStep = in.cycleBlock;
+                if (cameraView == CameraView::Fps || freeCam) {
+                    blockStep += static_cast<int>(in.zoom);
+                }
+                if (blockStep != 0) {
+                    heldBlock = ((heldBlock + blockStep) % kPaletteCount + kPaletteCount) %
                                 kPaletteCount;
                 }
 
@@ -849,16 +887,12 @@ int main(int argc, char* argv[]) {
                 BeginDrawing();
                 ClearBackground(Color{18, 22, 31, 255});
 
-                // MakeFrustum assumes a perspective cone; for the orthographic
-                // iso camera, widen the cone so it never culls a visible chunk
-                // (over-drawing a few far ones is fine at this load radius).
-                Camera3D frustumCamera = camera;
-                if (isoView) {
-                    frustumCamera.fovy = 60.0F;
-                }
+                // MakeFrustum builds a perspective cone, which does not describe
+                // the orthographic iso view -- there we skip the cull and draw
+                // every loaded section (bounded by the load radius).
                 const voxelgame::Frustum frustum = voxelgame::MakeFrustum(
-                    frustumCamera, static_cast<float>(GetScreenWidth()) /
-                                       static_cast<float>(GetScreenHeight()));
+                    camera, static_cast<float>(GetScreenWidth()) /
+                                static_cast<float>(GetScreenHeight()));
                 int drawnSections = 0;
 
                 // Only the sections in view, computed once for all passes. Close
@@ -871,7 +905,8 @@ int main(int argc, char* argv[]) {
                         static_cast<float>(entry.first[1] * voxelgame::ChunkSection::Size),
                         static_cast<float>(entry.first[2] * voxelgame::ChunkSection::Size)};
                     constexpr float s = static_cast<float>(voxelgame::ChunkSection::Size);
-                    if (!voxelgame::AabbInFrustum(frustum, origin,
+                    if (!isoView &&
+                        !voxelgame::AabbInFrustum(frustum, origin,
                                                   {origin.x + s, origin.y + s, origin.z + s})) {
                         continue;
                     }
@@ -910,6 +945,23 @@ int main(int argc, char* argv[]) {
                             Mat4::Scale(chickenModel.VoxelSize());
                         chickenModel.Draw(root, chickenAnimator.Pose(chickenModel.Model()));
                     }
+                }
+
+                // FPS: the held block floats in front of the camera and bobs
+                // with the walk -- a stand-in "first person hand".
+                if (cameraView == CameraView::Fps) {
+                    const float t = static_cast<float>(GetTime());
+                    const float bob =
+                        std::sin(t * (moving ? 9.0F : 2.0F)) * (moving ? 0.015F : 0.004F);
+                    const Vector3 held{camera.position.x + forward.x * 0.55F + cy * 0.30F,
+                                       camera.position.y + forward.y * 0.55F - 0.32F + bob,
+                                       camera.position.z + forward.z * 0.55F + sy * 0.30F};
+                    const voxelgame::BlockColor bc =
+                        voxelgame::GetBlockDefinition(kPalette[heldBlock]).color;
+                    rlDisableDepthTest();
+                    DrawCubeV(held, {0.13F, 0.13F, 0.13F}, Color{bc.red, bc.green, bc.blue, 255});
+                    DrawCubeWiresV(held, {0.13F, 0.13F, 0.13F}, Fade(BLACK, 0.35F));
+                    rlEnableDepthTest();
                 }
 
                 // Pass 2: cutout -- alpha-tested, still writes depth.
@@ -1009,7 +1061,7 @@ int main(int argc, char* argv[]) {
                                         voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.size()),
                                     voxelgame::GetBlockDefinition(kPalette[heldBlock]).name.data()),
                          24, 192, 18, target.hit ? LIME : LIGHTGRAY);
-                DrawText("WASD move  Space/Ctrl fly  ZR/ZL break/place  C camera  Tab mouse  F5 save",
+                DrawText("WASD move  LMB/RMB break/place  C camera (wheel=zoom)  Q/E block  F5 save",
                          24, 214, 15, GRAY);
 
                 if (GetTime() < saveFlashUntil) {
