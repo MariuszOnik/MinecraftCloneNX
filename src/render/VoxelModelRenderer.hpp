@@ -27,15 +27,19 @@ public:
     bool Upload(const vmodel::VoxelModel& model);
 
     // Draws the model with `root` applied to every part (world placement + the
-    // model's voxelSize scale belong in `root`).
+    // model's voxelSize scale belong in `root`). `pose`, if given, is the
+    // animation offset per part (one entry per part) -- geometry is not touched.
     void Draw(const vmodel::Mat4& root) const;
+    void Draw(const vmodel::Mat4& root, const std::vector<vmodel::PartPose>& pose) const;
 
     [[nodiscard]] bool Ready() const noexcept { return ready_; }
     [[nodiscard]] std::size_t PartCount() const noexcept { return meshes_.size(); }
     [[nodiscard]] float VoxelSize() const noexcept { return model_.voxelSize; }
+    [[nodiscard]] const vmodel::VoxelModel& Model() const noexcept { return model_; }
 
 private:
     void Unload() noexcept;
+    void DrawResolved(const std::vector<vmodel::Mat4>& world) const;
 
     vmodel::VoxelModel model_;   // kept for the part hierarchy at draw time
     std::vector<Mesh> meshes_;   // one per part; vertexCount 0 for an empty part

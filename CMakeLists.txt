@@ -110,6 +110,7 @@ target_include_directories(voxelgame_world SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 add_library(voxelgame_model STATIC
+    src/model/Animation.cpp
     src/model/VoxelModel.cpp
     src/model/VoxelModelLoader.cpp
     src/model/VoxelModelMesher.cpp

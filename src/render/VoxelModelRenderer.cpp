@@ -113,10 +113,18 @@ bool VoxelModelRenderMesh::Upload(const vmodel::VoxelModel& model) {
 }
 
 void VoxelModelRenderMesh::Draw(const vmodel::Mat4& root) const {
+    DrawResolved(vmodel::ResolvePartMatrices(model_, root, nullptr));
+}
+
+void VoxelModelRenderMesh::Draw(const vmodel::Mat4& root,
+                                const std::vector<vmodel::PartPose>& pose) const {
+    DrawResolved(vmodel::ResolvePartMatrices(model_, root, &pose));
+}
+
+void VoxelModelRenderMesh::DrawResolved(const std::vector<vmodel::Mat4>& world) const {
     if (!ready_) {
         return;
     }
-    const std::vector<vmodel::Mat4> world = vmodel::ResolvePartMatrices(model_, root);
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         if (meshes_[i].vertexCount > 0) {
             DrawMesh(meshes_[i], material_, ToRaylib(world[i]));

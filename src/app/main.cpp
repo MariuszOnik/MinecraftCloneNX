@@ -12,6 +12,7 @@
 #include "world/ChunkSection.hpp"
 #include "world/PlayerBody.hpp"
 #include "world/Raycast.hpp"
+#include "model/Animation.hpp"
 #include "model/ModelMath.hpp"
 #include "model/VoxelModelLoader.hpp"
 #include "render/VoxelModelRenderer.hpp"
@@ -300,6 +301,32 @@ voxelgame::VoxelModelRenderMesh LoadVoxelModel(const voxelgame::AssetPaths& asse
     return mesh;
 }
 
+// Loads a .vxa.json animation clip through the asset resolver. Every failure is
+// logged and returns nullopt (the model then just stands in its rest pose).
+std::optional<voxelgame::vmodel::AnimationClip> LoadAnimationClip(
+    const voxelgame::AssetPaths& assets, const std::string& relative) {
+    const voxelgame::AssetPaths::Resolved file = assets.Resolve(relative);
+    if (!file.found) {
+        TraceLog(LOG_WARNING, "VOXEL: animation '%s' not found", relative.c_str());
+        return std::nullopt;
+    }
+    const auto text = ReadTextFile(file.path);
+    if (!text) {
+        TraceLog(LOG_WARNING, "VOXEL: animation '%s' unreadable", file.path.c_str());
+        return std::nullopt;
+    }
+    std::string error = "unknown";
+    auto clip = voxelgame::vmodel::ParseAnimationClip(*text, error);
+    if (!clip) {
+        TraceLog(LOG_WARNING, "VOXEL: animation '%s' invalid (%s)", file.path.c_str(),
+                 error.c_str());
+        return std::nullopt;
+    }
+    TraceLog(LOG_INFO, "VOXEL: loaded animation '%s' (%zu tracks, %.2fs)", file.path.c_str(),
+             clip->tracks.size(), static_cast<double>(clip->duration));
+    return clip;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -374,6 +401,12 @@ int main(int argc, char* argv[]) {
             LoadVoxelModel(assets, "models/humanoid.vxm.json");
         const voxelgame::VoxelModelRenderMesh chickenModel =
             LoadVoxelModel(assets, "models/chicken.vxm.json");
+        const auto humanoidWalk = LoadAnimationClip(assets, "animations/humanoid_walk.vxa.json");
+        const auto chickenWalk = LoadAnimationClip(assets, "animations/chicken_walk.vxa.json");
+        voxelgame::vmodel::AnimationState humanoidAnim{
+            humanoidWalk ? &*humanoidWalk : nullptr, 0.0F, 1.0F};
+        voxelgame::vmodel::AnimationState chickenAnim{
+            chickenWalk ? &*chickenWalk : nullptr, 0.0F, 1.0F};
 
         // Replay the saved player edits: stored now, re-applied as each column loads.
         if (loadedSave) {
@@ -603,6 +636,11 @@ int main(int argc, char* argv[]) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
                 player.Step(world, {wishX * speed, 0.0F, wishZ * speed}, in.jump, dt);
 
+                // M5 slice 2: the demo models walk in place -- their parts move
+                // every frame while the geometry is never re-meshed.
+                humanoidAnim.Advance(dt);
+                chickenAnim.Advance(dt);
+
                 const voxelgame::Vec3 eye = player.EyePosition();
                 camera.position = {eye.x, eye.y, eye.z};
                 camera.target = {eye.x + forward.x, eye.y + forward.y, eye.z + forward.z};
@@ -701,15 +739,17 @@ int main(int argc, char* argv[]) {
                 {
                     using voxelgame::vmodel::Mat4;
                     if (humanoidModel.Ready()) {
-                        humanoidModel.Draw(
+                        const Mat4 root =
                             Mat4::Translate(humanoidPos.x, humanoidPos.y, humanoidPos.z) *
                             Mat4::RotateXYZ({0.0F, kHumanoidYaw, 0.0F}) *
-                            Mat4::Scale(humanoidModel.VoxelSize()));
+                            Mat4::Scale(humanoidModel.VoxelSize());
+                        humanoidModel.Draw(root, humanoidAnim.Sample(humanoidModel.Model()));
                     }
                     if (chickenModel.Ready()) {
-                        chickenModel.Draw(
+                        const Mat4 root =
                             Mat4::Translate(chickenPos.x, chickenPos.y, chickenPos.z) *
-                            Mat4::Scale(chickenModel.VoxelSize()));
+                            Mat4::Scale(chickenModel.VoxelSize());
+                        chickenModel.Draw(root, chickenAnim.Sample(chickenModel.Model()));
                     }
                 }
 
@@ -795,10 +835,11 @@ int main(int argc, char* argv[]) {
                                     : player.OnGround()   ? "grounded"
                                                           : "airborne"),
                          24, 148, 18, LIGHTGRAY);
-                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Models: %i+%i parts", GetFPS(),
+                DrawText(TextFormat("FPS: %i  Atlas: %ix%i %s  Models: %i+%i parts %s", GetFPS(),
                                     blockAtlas.width, blockAtlas.height, atlasSourceLabel,
                                     static_cast<int>(humanoidModel.PartCount()),
-                                    static_cast<int>(chickenModel.PartCount())),
+                                    static_cast<int>(chickenModel.PartCount()),
+                                    (humanoidWalk || chickenWalk) ? "(walking)" : ""),
                          24, 170, 18, LIGHTGRAY);
                 DrawText(TextFormat("Held: %.*s  (Q/E or X/Y)",
                                     static_cast<int>(

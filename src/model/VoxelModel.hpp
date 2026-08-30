@@ -64,9 +64,18 @@ struct VoxelModel {
     [[nodiscard]] const ModelMaterial* Material(std::uint8_t index) const noexcept;
 };
 
+// A per-part animation offset added on top of a part's rest pose. All-zero means
+// "rest". `pose` passed to ResolvePartMatrices must have one entry per part.
+struct PartPose {
+    Vec3 rotationDegrees;   // added to VoxelModelPart::rotationDegrees
+    Vec3 positionOffset;    // added to VoxelModelPart::position, in voxel units
+};
+
 // World matrix of every part, in `parts` order: parentWorld * T(position) *
 // T(pivot) * R(rotation) * T(-pivot). `root` is prepended to every part (use it
-// to place and scale the whole model in the world).
-[[nodiscard]] std::vector<Mat4> ResolvePartMatrices(const VoxelModel& model, const Mat4& root);
+// to place and scale the whole model in the world). If `pose` is non-null it
+// supplies the animation offset for each part.
+[[nodiscard]] std::vector<Mat4> ResolvePartMatrices(const VoxelModel& model, const Mat4& root,
+                                                    const std::vector<PartPose>* pose = nullptr);
 
 }  // namespace voxelgame::vmodel
