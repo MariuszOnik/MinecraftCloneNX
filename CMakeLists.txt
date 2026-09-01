@@ -194,9 +194,19 @@ else()
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+    # The battle build ships as its own title so it can sit next to the sandbox
+    # NRO on the SD card.
+    if(VOXELGAME_BATTLE_DEFAULT)
+        set(VOXELGAME_NRO_NAME "voxeltactics")
+        set(VOXELGAME_NRO_TITLE "Voxel Tactics")
+    else()
+        set(VOXELGAME_NRO_NAME "voxelgame")
+        set(VOXELGAME_NRO_TITLE "Voxel Game")
+    endif()
+
     nx_generate_nacp(
-        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/voxelgame.nacp"
-        NAME "Voxel Game"
+        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${VOXELGAME_NRO_NAME}.nacp"
+        NAME "${VOXELGAME_NRO_TITLE}"
         AUTHOR "Voxel Game contributors"
         VERSION "${PROJECT_VERSION}"
     )
@@ -219,8 +229,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     nx_create_nro(
         voxelgame_nro
         TARGET voxelgame
-        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/voxelgame.nro"
-        NACP "${CMAKE_CURRENT_BINARY_DIR}/voxelgame.nacp"
+        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${VOXELGAME_NRO_NAME}.nro"
+        NACP "${CMAKE_CURRENT_BINARY_DIR}/${VOXELGAME_NRO_NAME}.nacp"
         ROMFS "${VOXELGAME_ROMFS_STAGE}"
     )
     add_dependencies(voxelgame_nro voxelgame_romfs)
