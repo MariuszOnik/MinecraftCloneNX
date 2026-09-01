@@ -279,6 +279,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         ROMFS "${VOXELGAME_ROMFS_STAGE}"
     )
     add_dependencies(voxelgame_nro voxelgame_romfs)
+
+    # Every fresh NRO (and the assets it needs from the SD card) is mirrored to
+    # VOXELGAME_DEPLOY_DIR\switch\<name>\ when that directory exists -- the
+    # emulator's SD folder locally, skipped on CI. Layout matches a real console.
+    # STRING, not PATH: a PATH cache entry gets normalised relative to the source
+    # dir under the MSYS2 toolchain, mangling a "D:/..." value.
+    set(VOXELGAME_DEPLOY_DIR "" CACHE STRING "SD root to mirror the NRO + assets into after each build")
+    if(VOXELGAME_DEPLOY_DIR AND EXISTS "${VOXELGAME_DEPLOY_DIR}")
+        set(_deploy "${VOXELGAME_DEPLOY_DIR}/switch/${VOXELGAME_NRO_NAME}")
+        add_custom_command(TARGET voxelgame_nro POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy
+                    "${CMAKE_CURRENT_BINARY_DIR}/${VOXELGAME_NRO_NAME}.nro"
+                    "${_deploy}/${VOXELGAME_NRO_NAME}.nro"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${VOXELGAME_ASSET_DIR}" "${_deploy}/assets"
+            COMMENT "Deploying ${VOXELGAME_NRO_NAME}.nro + assets -> ${_deploy}"
+            VERBATIM
+        )
+    endif()
 else()
     # Always mirror assets next to the executable, so editing a data file (atlas,
     # descriptor) takes effect without a source rebuild.

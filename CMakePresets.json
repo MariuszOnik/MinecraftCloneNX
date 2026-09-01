@@ -41,7 +41,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_TESTING": "OFF",
-        "VOXELGAME_BATTLE_DEFAULT": "ON"
+        "VOXELGAME_BATTLE_DEFAULT": "ON",
+        "VOXELGAME_DEPLOY_DIR": "D:/SDMC"
       }
     }
   ],
