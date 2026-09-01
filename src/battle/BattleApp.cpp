@@ -2,6 +2,7 @@
 
 #include "battle/BattleCamera.hpp"
 #include "battle/BattleMap.hpp"
+#include "battle/BattleScript.hpp"
 #include "battle/Unit.hpp"
 #include "battle/render/UnitRenderer.hpp"
 #include "platform/Assets.hpp"
@@ -104,7 +105,21 @@ int RunBattle(int argc, char* argv[]) {
         BattleMap map;
         UnitRegistry units;
         UnitRenderer unitRenderer(assets);
-        SpawnUnits(map, units, map.Grid());
+
+        // Unit placement is the battle script's job (S3). A failure is logged
+        // loudly and falls back to a hard-coded 3v3 so the arena is not empty.
+        BattleScript scripting(map, units);
+        const AssetPaths::Resolved scriptFile =
+            assets.Resolve("scripts/battles/skirmish01.lua");
+        std::string scriptError;
+        bool scriptOk = scriptFile.found &&
+                        scripting.LoadBattle(scriptFile.path, scriptError);
+        if (!scriptOk) {
+            TraceLog(LOG_ERROR, "BATTLE: script '%s' failed (%s); using default placement",
+                     scriptFile.path.c_str(),
+                     scriptError.empty() ? "not found" : scriptError.c_str());
+            SpawnUnits(map, units, map.Grid());
+        }
 
         // Mesh the small static arena once.
         using SectionKey = std::array<int, 3>;
@@ -210,12 +225,12 @@ int RunBattle(int argc, char* argv[]) {
                 EndMode3D();
 
                 DrawRectangle(12, 12, 380, 96, Fade(BLACK, 0.72F));
-                DrawText("VOXEL TACTICS  (S2)", 24, 22, 22, LIME);
-                DrawText(TextFormat("Units: %i blue / %i red   Walkable: %i",
+                DrawText("VOXEL TACTICS  (S3)", 24, 22, 22, LIME);
+                DrawText(TextFormat("Units: %i blue / %i red   Placement: %s",
                                     static_cast<int>(units.TeamCount(0)),
                                     static_cast<int>(units.TeamCount(1)),
-                                    static_cast<int>(grid.WalkableCount())),
-                         24, 52, 18, RAYWHITE);
+                                    scriptOk ? "skirmish01.lua" : "default (script failed)"),
+                         24, 52, 18, scriptOk ? RAYWHITE : Color{240, 150, 90, 255});
                 DrawText("WASD/stick pan   Q/E rotate   wheel/ZL-ZR zoom", 24, 78, 16, GRAY);
 
                 EndDrawing();

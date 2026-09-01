@@ -1,10 +1,17 @@
 #include "battle/BattleMap.hpp"
 #include "battle/TileGrid.hpp"
 #include "battle/Unit.hpp"
+#include "script/LuaHost.hpp"
 #include "world/Block.hpp"
 #include "world/World.hpp"
 
+extern "C" {
+#include <lauxlib.h>
+#include <lua.h>
+}
+
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -141,6 +148,38 @@ int main() {
                 Expect(map.Grid().At(tx, tz).walkable, "every spawn tile is walkable");
             }
         }
+    }
+
+    // LuaHost: run chunks, call globals, capture errors, and reach C bindings.
+    {
+        voxelgame::script::LuaHost host;
+        Expect(host.Ok(), "the Lua state starts");
+
+        std::string error;
+        Expect(host.DoString("x = 2 + 3", "test", error), "a valid chunk runs (" + error + ")");
+        Expect(!host.DoString("this is not lua", "bad", error), "a syntax error is caught");
+        Expect(!error.empty(), "the error message is filled");
+
+        Expect(host.DoString("function greet() end", "fn", error), "define a global function");
+        Expect(host.CallGlobal("greet", error), "calling it succeeds");
+        Expect(host.CallGlobal("no_such_function", error), "a missing global is not an error");
+        Expect(host.DoString("function boom() error('kaboom') end", "boom", error),
+               "defining boom() is fine");
+        Expect(!host.CallGlobal("boom", error) && error.find("kaboom") != std::string::npos,
+               "a runtime error propagates the message");
+
+        // A C function reachable from Lua via its context upvalue.
+        static int captured = 0;
+        host.RegisterFunction(
+            "remember",
+            [](lua_State* L) -> int {
+                auto* slot = static_cast<int*>(lua_touserdata(L, lua_upvalueindex(1)));
+                *slot = static_cast<int>(luaL_checkinteger(L, 1));
+                return 0;
+            },
+            &captured);
+        Expect(host.DoString("remember(41 + 1)", "bind", error), "the binding runs");
+        Expect(captured == 42, "the C function saw the Lua argument via its context");
     }
 
     if (failures == 0) {

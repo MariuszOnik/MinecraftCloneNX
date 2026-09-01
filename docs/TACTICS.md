@@ -47,10 +47,15 @@ src/battle/
   render/TileOverlay.{hpp,cpp}    cursor highlight + move/attack range quads
   render/BattleUi.{hpp,cpp}       raygui-backed menus/banners Lua asks for
   BattleCamera.{hpp,cpp} iso follow + 90-degree rotation snap + pan + zoom
+  src/script/LuaHost.{hpp,cpp}    Lua 5.1 state, safe stdlib, load / call / bind
 assets/battle/maps/      arena data (WorldSave format, or a small .map)
-scripts/                 rules/*.lua, abilities/*.lua, ai/*.lua, battles/*.lua
+assets/scripts/          rules/*.lua, abilities/*.lua, ai/*.lua, battles/*.lua
+                         (under assets/ so AssetPaths::Resolve + staging apply)
 third_party/raygui.h     vendored, pinned (added at S6)
 ```
+
+Lua 5.1.5 is vendored via `FetchContent` from `lua.org` (hash-pinned) and built
+from source, so PC and Switch link an identical library.
 
 `TurnManager` and the stat / D&D systems are **Lua**, not C++ modules. C++ keeps
 only what pathfinding and rendering need on the unit.

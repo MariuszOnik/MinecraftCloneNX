@@ -71,6 +71,24 @@ if(TARGET raylib)
     endif()
 endif()
 
+# Lua 5.1 -- the gameplay scripting layer, the same version on PC and Switch
+# (devkitPro NX has no newer Lua and no LuaJIT). Built from the canonical source
+# so both platforms link an identical library.
+FetchContent_Declare(
+    lua
+    URL "https://www.lua.org/ftp/lua-5.1.5.tar.gz"
+    URL_HASH "SHA256=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(lua)
+file(GLOB _lua_sources CONFIGURE_DEPENDS "${lua_SOURCE_DIR}/src/*.c")
+list(FILTER _lua_sources EXCLUDE REGEX "/(lua|luac|print)\\.c$")
+add_library(lua STATIC ${_lua_sources})
+target_include_directories(lua SYSTEM PUBLIC "${lua_SOURCE_DIR}/src")
+if(NOT WIN32 AND NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+    target_compile_definitions(lua PRIVATE LUA_USE_POSIX)
+endif()
+
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_config.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/voxelgame/build_config.hpp"
@@ -135,13 +153,18 @@ target_link_libraries(voxelgame_render
 
 # Turn-based battle mode (branch: tactics). Logic (TileGrid, BattleMap) is
 # raylib-free and unit-tested; BattleApp is the raylib entry point.
+add_library(voxelgame_script STATIC src/script/LuaHost.cpp)
+target_include_directories(voxelgame_script PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(voxelgame_script PUBLIC lua)
+
 add_library(voxelgame_battle STATIC
     src/battle/BattleMap.cpp
+    src/battle/BattleScript.cpp
     src/battle/TileGrid.cpp
     src/battle/Unit.cpp
 )
 target_include_directories(voxelgame_battle PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(voxelgame_battle PUBLIC voxelgame_world)
+target_link_libraries(voxelgame_battle PUBLIC voxelgame_world voxelgame_script)
 
 add_executable(voxelgame
     src/app/Input.cpp
