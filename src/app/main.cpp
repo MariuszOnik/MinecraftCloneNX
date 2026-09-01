@@ -14,10 +14,8 @@
 #include "world/PlayerBody.hpp"
 #include "world/Raycast.hpp"
 #include "model/Animation.hpp"
-#include "model/AnimationBinary.hpp"
 #include "model/ModelMath.hpp"
-#include "model/VoxelModelBinary.hpp"
-#include "model/VoxelModelLoader.hpp"
+#include "render/ModelLoad.hpp"
 #include "render/VoxelModelRenderer.hpp"
 #include "world/TerrainGenerator.hpp"
 #include "world/World.hpp"
@@ -291,87 +289,6 @@ LoadedAtlas LoadBlockAtlas(const voxelgame::AssetPaths& assets) {
     return out;
 }
 
-// Loads a voxel model by base name (e.g. "models/humanoid"): the compiled
-// "<base>.vxm" binary if present, otherwise the "<base>.vxm.json" source. Every
-// failure is logged and yields an empty (not-ready) render mesh -- no silent
-// fallback (PLAN.md 12).
-voxelgame::VoxelModelRenderMesh LoadVoxelModel(const voxelgame::AssetPaths& assets,
-                                               const std::string& base) {
-    voxelgame::VoxelModelRenderMesh mesh;
-    std::optional<voxelgame::vmodel::VoxelModel> model;
-    std::string source;
-
-    const voxelgame::AssetPaths::Resolved binary = assets.Resolve(base + ".vxm");
-    if (binary.found) {
-        model = voxelgame::vmodel::ReadVoxelModelBinaryFile(binary.path);
-        source = binary.path;
-        if (!model) {
-            TraceLog(LOG_WARNING, "VOXEL: model binary '%s' invalid", binary.path.c_str());
-        }
-    }
-    if (!model) {
-        const voxelgame::AssetPaths::Resolved json = assets.Resolve(base + ".vxm.json");
-        source = json.path;
-        if (!json.found) {
-            TraceLog(LOG_WARNING, "VOXEL: model '%s' not found", base.c_str());
-            return mesh;
-        }
-        const auto text = ReadTextFile(json.path);
-        std::string error = "unreadable";
-        if (text) {
-            model = voxelgame::vmodel::ParseVoxelModel(*text, error);
-        }
-        if (!model) {
-            TraceLog(LOG_WARNING, "VOXEL: model '%s' invalid (%s)", json.path.c_str(),
-                     error.c_str());
-            return mesh;
-        }
-    }
-
-    if (!mesh.Upload(*model)) {
-        TraceLog(LOG_WARNING, "VOXEL: model '%s' failed to upload", source.c_str());
-        return mesh;
-    }
-    TraceLog(LOG_INFO, "VOXEL: loaded model '%s' (%zu parts)", source.c_str(), mesh.PartCount());
-    return mesh;
-}
-
-// Loads an animation clip by base name: the compiled "<base>.vxa" binary if
-// present, otherwise the "<base>.vxa.json" source. nullopt on any failure (the
-// model then just stands in its rest pose).
-std::optional<voxelgame::vmodel::AnimationClip> LoadAnimationClip(
-    const voxelgame::AssetPaths& assets, const std::string& base) {
-    const voxelgame::AssetPaths::Resolved binary = assets.Resolve(base + ".vxa");
-    if (binary.found) {
-        if (auto clip = voxelgame::vmodel::ReadAnimationBinaryFile(binary.path)) {
-            TraceLog(LOG_INFO, "VOXEL: loaded animation '%s' (%zu tracks)", binary.path.c_str(),
-                     clip->tracks.size());
-            return clip;
-        }
-        TraceLog(LOG_WARNING, "VOXEL: animation binary '%s' invalid", binary.path.c_str());
-    }
-
-    const voxelgame::AssetPaths::Resolved json = assets.Resolve(base + ".vxa.json");
-    if (!json.found) {
-        TraceLog(LOG_WARNING, "VOXEL: animation '%s' not found", base.c_str());
-        return std::nullopt;
-    }
-    const auto text = ReadTextFile(json.path);
-    std::string error = "unreadable";
-    std::optional<voxelgame::vmodel::AnimationClip> clip;
-    if (text) {
-        clip = voxelgame::vmodel::ParseAnimationClip(*text, error);
-    }
-    if (!clip) {
-        TraceLog(LOG_WARNING, "VOXEL: animation '%s' invalid (%s)", json.path.c_str(),
-                 error.c_str());
-        return std::nullopt;
-    }
-    TraceLog(LOG_INFO, "VOXEL: loaded animation '%s' (%zu tracks, %.2fs)", json.path.c_str(),
-             clip->tracks.size(), static_cast<double>(clip->duration));
-    return clip;
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -454,14 +371,15 @@ int main(int argc, char* argv[]) {
         // M5: two hierarchical voxel models shown standing near spawn. Declared
         // here so their GPU meshes are freed before the window closes.
         // The humanoid is the player's own avatar; the chicken is a demo NPC.
-        const voxelgame::VoxelModelRenderMesh playerModel = LoadVoxelModel(assets, "models/humanoid");
+        const voxelgame::VoxelModelRenderMesh playerModel =
+            voxelgame::LoadModelMesh(assets, "models/humanoid");
         const voxelgame::VoxelModelRenderMesh chickenModel =
-            LoadVoxelModel(assets, "models/chicken");
-        const auto playerIdle = LoadAnimationClip(assets, "animations/humanoid_idle");
-        const auto playerWalk = LoadAnimationClip(assets, "animations/humanoid_walk");
-        const auto playerRun = LoadAnimationClip(assets, "animations/humanoid_run");
-        const auto chickenIdle = LoadAnimationClip(assets, "animations/chicken_idle");
-        const auto chickenWalk = LoadAnimationClip(assets, "animations/chicken_walk");
+            voxelgame::LoadModelMesh(assets, "models/chicken");
+        const auto playerIdle = voxelgame::LoadAnimationClip(assets, "animations/humanoid_idle");
+        const auto playerWalk = voxelgame::LoadAnimationClip(assets, "animations/humanoid_walk");
+        const auto playerRun = voxelgame::LoadAnimationClip(assets, "animations/humanoid_run");
+        const auto chickenIdle = voxelgame::LoadAnimationClip(assets, "animations/chicken_idle");
+        const auto chickenWalk = voxelgame::LoadAnimationClip(assets, "animations/chicken_walk");
         const auto clipPtr = [](const std::optional<voxelgame::vmodel::AnimationClip>& c) {
             return c ? &*c : nullptr;
         };

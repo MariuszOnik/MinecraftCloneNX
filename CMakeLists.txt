@@ -125,11 +125,13 @@ add_library(voxelgame_render STATIC
     src/render/BlockAtlas.cpp
     src/render/ChunkRenderMesh.cpp
     src/render/Frustum.cpp
+    src/render/ModelLoad.cpp
     src/render/TilingShader.cpp
     src/render/VoxelModelRenderer.cpp
 )
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(voxelgame_render PUBLIC voxelgame_world voxelgame_model PRIVATE raylib)
+target_link_libraries(voxelgame_render
+    PUBLIC voxelgame_world voxelgame_model voxelgame_core PRIVATE raylib)
 
 # Turn-based battle mode (branch: tactics). Logic (TileGrid, BattleMap) is
 # raylib-free and unit-tested; BattleApp is the raylib entry point.
