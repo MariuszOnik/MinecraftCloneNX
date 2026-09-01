@@ -40,7 +40,8 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/switch.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_TESTING": "OFF"
+        "BUILD_TESTING": "OFF",
+        "VOXELGAME_BATTLE_DEFAULT": "ON"
       }
     }
   ],

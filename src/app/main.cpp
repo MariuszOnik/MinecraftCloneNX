@@ -398,6 +398,13 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    // The Switch NRO gets no command-line arguments from hbmenu, so a build
+    // option lets it boot straight into the battle mode (--sandbox overrides).
+#if defined(VOXELGAME_BATTLE_DEFAULT)
+    if (!HasArgument(argc, argv, "--sandbox")) {
+        return voxelgame::battle::RunBattle(argc, argv);
+    }
+#endif
     if (HasArgument(argc, argv, "--battle")) {
         return voxelgame::battle::RunBattle(argc, argv);
     }

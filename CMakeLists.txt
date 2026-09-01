@@ -147,6 +147,13 @@ add_executable(voxelgame
 )
 target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render voxelgame_battle raylib)
 
+# When set, no-argument launch runs the battle mode instead of the sandbox
+# (the Switch NRO has no CLI args). --sandbox still forces the open-world loop.
+option(VOXELGAME_BATTLE_DEFAULT "Boot straight into the battle mode" OFF)
+if(VOXELGAME_BATTLE_DEFAULT)
+    target_compile_definitions(voxelgame PRIVATE VOXELGAME_BATTLE_DEFAULT)
+endif()
+
 if(MINGW)
     target_link_options(voxelgame PRIVATE -static -static-libgcc -static-libstdc++)
 endif()

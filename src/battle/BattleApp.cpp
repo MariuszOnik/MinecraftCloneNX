@@ -128,11 +128,22 @@ int RunBattle(int argc, char* argv[]) {
             while (!WindowShouldClose()) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
                 const float panSpeed = 12.0F * dt;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) pan.x += panSpeed;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) pan.x -= panSpeed;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) pan.z += panSpeed;
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) pan.z -= panSpeed;
-                orthoHeight = std::clamp(orthoHeight - GetMouseWheelMove() * 2.0F, 8.0F, 48.0F);
+                float panX = 0.0F;
+                float panZ = 0.0F;
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) panX += 1.0F;
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) panX -= 1.0F;
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) panZ += 1.0F;
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) panZ -= 1.0F;
+                float zoom = GetMouseWheelMove() * 2.0F;
+                if (IsGamepadAvailable(0)) {
+                    panX += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+                    panZ += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+                    zoom += (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ? 1.0F : 0.0F) -
+                            (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? 1.0F : 0.0F);
+                }
+                pan.x += std::clamp(panX, -1.0F, 1.0F) * panSpeed;
+                pan.z += std::clamp(panZ, -1.0F, 1.0F) * panSpeed;
+                orthoHeight = std::clamp(orthoHeight - zoom, 8.0F, 48.0F);
 
                 const Vector3 focus{mapCentre.x + pan.x, mapCentre.y, mapCentre.z + pan.z};
                 camera.position = {focus.x - isoDir.x * kCameraDistance,
