@@ -1,4 +1,5 @@
 #include "app/Input.hpp"
+#include "battle/BattleApp.hpp"
 #include "core/BuildInfo.hpp"
 #include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
@@ -395,6 +396,10 @@ int main(int argc, char* argv[]) {
         }
         std::puts("Wrote assets/atlases/blocks.png");
         return 0;
+    }
+
+    if (HasArgument(argc, argv, "--battle")) {
+        return voxelgame::battle::RunBattle(argc, argv);
     }
 
     const bool smokeWindow = HasArgument(argc, argv, "--smoke-window");

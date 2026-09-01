@@ -131,11 +131,21 @@ add_library(voxelgame_render STATIC
 target_include_directories(voxelgame_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(voxelgame_render PUBLIC voxelgame_world voxelgame_model PRIVATE raylib)
 
+# Turn-based battle mode (branch: tactics). Logic (TileGrid, BattleMap) is
+# raylib-free and unit-tested; BattleApp is the raylib entry point.
+add_library(voxelgame_battle STATIC
+    src/battle/BattleMap.cpp
+    src/battle/TileGrid.cpp
+)
+target_include_directories(voxelgame_battle PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(voxelgame_battle PUBLIC voxelgame_world)
+
 add_executable(voxelgame
     src/app/Input.cpp
     src/app/main.cpp
+    src/battle/BattleApp.cpp
 )
-target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render raylib)
+target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render voxelgame_battle raylib)
 
 if(MINGW)
     target_link_options(voxelgame PRIVATE -static -static-libgcc -static-libstdc++)
@@ -164,12 +174,14 @@ if(MSVC)
     target_compile_options(voxelgame_core PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_world PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_model PRIVATE /W4 /permissive-)
+    target_compile_options(voxelgame_battle PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame_render PRIVATE /W4 /permissive-)
     target_compile_options(voxelgame PRIVATE /W4 /permissive-)
 else()
     target_compile_options(voxelgame_core PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame_world PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame_model PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(voxelgame_battle PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame_render PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(voxelgame PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -239,8 +251,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_options(voxelgame_model_tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 
+    add_executable(voxelgame_battle_tests tests/BattleTileGridTests.cpp)
+    target_link_libraries(voxelgame_battle_tests PRIVATE voxelgame_battle)
+    if(MINGW)
+        target_link_options(voxelgame_battle_tests PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+
     add_test(NAME core.build_info COMMAND voxelgame_core_tests)
     add_test(NAME world.chunk_mesher COMMAND voxelgame_world_tests)
     add_test(NAME model.voxel_model COMMAND voxelgame_model_tests)
+    add_test(NAME battle.tile_grid COMMAND voxelgame_battle_tests)
     add_test(NAME app.smoke COMMAND voxelgame --smoke-test)
 endif()
