@@ -82,6 +82,11 @@ void BattleMap::BuildArena() {
     }
 
     world_.SetJournalling(true);
+
+    // Spawn tiles: the player near the south edge (clear of the water strip),
+    // the enemy near the north edge.
+    playerSpawns_ = {{9, 6}, {11, 6}, {13, 6}};
+    enemySpawns_ = {{9, 20}, {11, 20}, {13, 20}};
 }
 
 }  // namespace voxelgame::battle

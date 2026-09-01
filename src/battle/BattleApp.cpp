@@ -1,6 +1,10 @@
 #include "battle/BattleApp.hpp"
 
+#include "battle/BattleCamera.hpp"
 #include "battle/BattleMap.hpp"
+#include "battle/Unit.hpp"
+#include "battle/render/UnitRenderer.hpp"
+#include "platform/Assets.hpp"
 #include "render/BlockAtlas.hpp"
 #include "render/ChunkRenderMesh.hpp"
 #include "render/TilingShader.hpp"
@@ -16,14 +20,9 @@
 #include <cmath>
 #include <cstring>
 #include <map>
-#include <vector>
 
 namespace voxelgame::battle {
 namespace {
-
-constexpr float kIsoYaw = 0.78539816F;
-constexpr float kIsoPitch = 0.61547971F;
-constexpr float kCameraDistance = 80.0F;
 
 bool HasArg(const int argc, char* argv[], const char* name) {
     for (int i = 1; i < argc; ++i) {
@@ -43,12 +42,6 @@ const char* ArgValue(const int argc, char* argv[], const char* name) {
     return nullptr;
 }
 
-Vector3 IsoDirection() {
-    return {std::sin(kIsoYaw) * std::cos(kIsoPitch), -std::sin(kIsoPitch),
-            -std::cos(kIsoYaw) * std::cos(kIsoPitch)};
-}
-
-// Draws the outline of one tile's top face, lifted slightly to avoid z-fighting.
 void DrawTileOutline(const int tileX, const int tileZ, const float y, const Color color) {
     const float x0 = static_cast<float>(tileX) + 0.05F;
     const float z0 = static_cast<float>(tileZ) + 0.05F;
@@ -61,6 +54,27 @@ void DrawTileOutline(const int tileX, const int tileZ, const float y, const Colo
     DrawLine3D({x0, h, z1}, {x0, h, z0}, color);
 }
 
+// Spawns each team's units on its map spawn tiles, facing the other side, and
+// marks the tiles as occupied.
+void SpawnUnits(const BattleMap& map, UnitRegistry& units, TileGrid& grid) {
+    for (int team = 0; team < 2; ++team) {
+        const auto& enemy = map.Spawns(1 - team);
+        const int lookX = enemy.empty() ? 0 : enemy.front().first;
+        const int lookZ = enemy.empty() ? 0 : enemy.front().second;
+        for (const auto& [tx, tz] : map.Spawns(team)) {
+            Unit unit;
+            unit.team = team;
+            unit.tileX = tx;
+            unit.tileZ = tz;
+            unit.facing = FacingTowards(tx, tz, lookX, lookZ);
+            unit.hpMax = 10;
+            unit.hp = 10;
+            const UnitHandle handle = units.Spawn(unit);
+            grid.At(tx, tz).occupant = handle.index;
+        }
+    }
+}
+
 }  // namespace
 
 int RunBattle(int argc, char* argv[]) {
@@ -68,13 +82,14 @@ int RunBattle(int argc, char* argv[]) {
     const char* screenshot = ArgValue(argc, argv, "--screenshot");
 
     SetConfigFlags(FLAG_VSYNC_HINT);
-    InitWindow(960, 540, "VoxelGame - battle");
+    InitWindow(960, 540, "Voxel Tactics");
     if (!IsWindowReady()) {
         return 3;
     }
     SetTargetFPS(60);
 
-    // Procedural atlas + tiling shader (SD-card overrides are a later concern).
+    const AssetPaths assets(GetApplicationDirectory());
+
     Image atlasImage = GenerateBlockAtlasImage();
     const Texture2D atlas = LoadTextureFromImage(atlasImage);
     UnloadImage(atlasImage);
@@ -87,12 +102,15 @@ int RunBattle(int argc, char* argv[]) {
     int result = 0;
     {
         BattleMap map;
-        const ChunkMesher mesher;
+        UnitRegistry units;
+        UnitRenderer unitRenderer(assets);
+        SpawnUnits(map, units, map.Grid());
 
-        // Mesh every section of the (small, static) arena once.
+        // Mesh the small static arena once.
         using SectionKey = std::array<int, 3>;
         std::map<SectionKey, ChunkRenderMesh> meshes;
         bool meshError = false;
+        const ChunkMesher mesher;
         const int sectionsY = map.GetWorld().SectionsY();
         const int chunkSpanX = (map.OriginX() + map.SizeX() - 1) / ChunkSection::Size + 1;
         const int chunkSpanZ = (map.OriginZ() + map.SizeZ() - 1) / ChunkSection::Size + 1;
@@ -103,8 +121,7 @@ int RunBattle(int argc, char* argv[]) {
                     if (data.Empty()) {
                         continue;
                     }
-                    const SectionKey key{cx, sy, cz};
-                    if (!meshes[key].Upload(data, atlas, tilingShader)) {
+                    if (!meshes[SectionKey{cx, sy, cz}].Upload(data, atlas, tilingShader)) {
                         meshError = true;
                     }
                 }
@@ -114,107 +131,97 @@ int RunBattle(int argc, char* argv[]) {
         if (meshError) {
             result = 4;
         } else {
-            const Vector3 isoDir = IsoDirection();
-            const Vector3 mapCentre{static_cast<float>(map.OriginX()) + map.SizeX() * 0.5F, 5.0F,
-                                    static_cast<float>(map.OriginZ()) + map.SizeZ() * 0.5F};
-            Vector3 pan{0.0F, 0.0F, 0.0F};
-            float orthoHeight = static_cast<float>(map.SizeX());
+            const auto drawArenaLayer = [&](const RenderLayer layer) {
+                for (auto& [key, mesh] : meshes) {
+                    mesh.DrawLayer({static_cast<float>(key[0] * ChunkSection::Size),
+                                    static_cast<float>(key[1] * ChunkSection::Size),
+                                    static_cast<float>(key[2] * ChunkSection::Size)},
+                                   layer);
+                }
+            };
 
-            Camera3D camera{};
-            camera.up = {0.0F, 1.0F, 0.0F};
-            camera.projection = CAMERA_ORTHOGRAPHIC;
+            BattleCamera camera;
+            camera.SetBounds(static_cast<float>(map.OriginX()), static_cast<float>(map.OriginZ()),
+                             static_cast<float>(map.OriginX() + map.SizeX()),
+                             static_cast<float>(map.OriginZ() + map.SizeZ()));
+            camera.FollowInstant({static_cast<float>(map.OriginX()) + map.SizeX() * 0.5F, 5.0F,
+                                  static_cast<float>(map.OriginZ()) + map.SizeZ() * 0.5F});
 
             int frames = 0;
             while (!WindowShouldClose()) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
-                const float panSpeed = 12.0F * dt;
-                float panX = 0.0F;
-                float panZ = 0.0F;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) panX += 1.0F;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) panX -= 1.0F;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) panZ += 1.0F;
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) panZ -= 1.0F;
-                float zoom = GetMouseWheelMove() * 2.0F;
+
+                float panF = 0.0F;
+                float panR = 0.0F;
+                if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) panF += 1.0F;
+                if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) panF -= 1.0F;
+                if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) panR += 1.0F;
+                if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) panR -= 1.0F;
+                float zoom = GetMouseWheelMove();
                 if (IsGamepadAvailable(0)) {
-                    panX += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
-                    panZ += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+                    panR += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+                    panF -= GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
                     zoom += (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ? 1.0F : 0.0F) -
                             (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? 1.0F : 0.0F);
                 }
-                pan.x += std::clamp(panX, -1.0F, 1.0F) * panSpeed;
-                pan.z += std::clamp(panZ, -1.0F, 1.0F) * panSpeed;
-                orthoHeight = std::clamp(orthoHeight - zoom, 8.0F, 48.0F);
-
-                const Vector3 focus{mapCentre.x + pan.x, mapCentre.y, mapCentre.z + pan.z};
-                camera.position = {focus.x - isoDir.x * kCameraDistance,
-                                   focus.y - isoDir.y * kCameraDistance,
-                                   focus.z - isoDir.z * kCameraDistance};
-                camera.target = focus;
-                camera.fovy = orthoHeight;
+                if (IsKeyPressed(KEY_Q) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
+                    camera.RotateLeft();
+                }
+                if (IsKeyPressed(KEY_E) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
+                    camera.RotateRight();
+                }
+                camera.Pan(std::clamp(panF, -1.0F, 1.0F), std::clamp(panR, -1.0F, 1.0F), dt);
+                camera.Zoom(zoom);
+                camera.Update(dt);
+                unitRenderer.Update(dt);
 
                 BeginDrawing();
                 ClearBackground(Color{20, 24, 33, 255});
-                BeginMode3D(camera);
+                BeginMode3D(camera.Camera());
 
                 SetTilingShaderAlphaCutoff(tilingShader, 0.0F);
-                for (auto& [key, mesh] : meshes) {
-                    const Vector3 origin{static_cast<float>(key[0] * ChunkSection::Size),
-                                         static_cast<float>(key[1] * ChunkSection::Size),
-                                         static_cast<float>(key[2] * ChunkSection::Size)};
-                    mesh.DrawLayer(origin, RenderLayer::Opaque);
-                }
+                drawArenaLayer(RenderLayer::Opaque);
                 SetTilingShaderAlphaCutoff(tilingShader, 0.5F);
-                for (auto& [key, mesh] : meshes) {
-                    const Vector3 origin{static_cast<float>(key[0] * ChunkSection::Size),
-                                         static_cast<float>(key[1] * ChunkSection::Size),
-                                         static_cast<float>(key[2] * ChunkSection::Size)};
-                    mesh.DrawLayer(origin, RenderLayer::Cutout);
-                }
+                drawArenaLayer(RenderLayer::Cutout);
                 SetTilingShaderAlphaCutoff(tilingShader, 0.0F);
+
+                unitRenderer.Draw(units, map.Grid());
+
                 rlDrawRenderBatchActive();
                 rlDisableDepthMask();
                 BeginBlendMode(BLEND_ALPHA);
-                for (const RenderLayer layer : {RenderLayer::Liquid, RenderLayer::Transparent}) {
-                    for (auto& [key, mesh] : meshes) {
-                        const Vector3 origin{static_cast<float>(key[0] * ChunkSection::Size),
-                                             static_cast<float>(key[1] * ChunkSection::Size),
-                                             static_cast<float>(key[2] * ChunkSection::Size)};
-                        mesh.DrawLayer(origin, layer);
-                    }
-                }
+                drawArenaLayer(RenderLayer::Liquid);
+                drawArenaLayer(RenderLayer::Transparent);
                 EndBlendMode();
                 rlDrawRenderBatchActive();
                 rlEnableDepthMask();
 
-                // Tile grid: green outline on walkable tiles, dim red on tiles
-                // that have a floor but are blocked.
                 const TileGrid& grid = map.Grid();
                 for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
                     for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
                         const Tile& tile = grid.At(tx, tz);
                         if (tile.walkable) {
                             DrawTileOutline(tx, tz, static_cast<float>(tile.height),
-                                            Color{90, 220, 120, 200});
-                        } else if (tile.hasFloor) {
-                            DrawTileOutline(tx, tz, static_cast<float>(tile.height),
-                                            Color{200, 90, 80, 120});
+                                            Color{90, 220, 120, 90});
                         }
                     }
                 }
 
                 EndMode3D();
 
-                DrawRectangle(12, 12, 360, 96, Fade(BLACK, 0.72F));
-                DrawText("BATTLE / ARENA (S1)", 24, 22, 22, LIME);
-                DrawText(TextFormat("Arena: %ix%i  Walkable tiles: %i", map.SizeX(), map.SizeZ(),
+                DrawRectangle(12, 12, 380, 96, Fade(BLACK, 0.72F));
+                DrawText("VOXEL TACTICS  (S2)", 24, 22, 22, LIME);
+                DrawText(TextFormat("Units: %i blue / %i red   Walkable: %i",
+                                    static_cast<int>(units.TeamCount(0)),
+                                    static_cast<int>(units.TeamCount(1)),
                                     static_cast<int>(grid.WalkableCount())),
                          24, 52, 18, RAYWHITE);
-                DrawText("Arrows/WASD pan   wheel zoom", 24, 78, 16, GRAY);
+                DrawText("WASD/stick pan   Q/E rotate   wheel/ZL-ZR zoom", 24, 78, 16, GRAY);
 
                 EndDrawing();
 
                 ++frames;
-                if (smokeWindow && frames >= 6) {
+                if (smokeWindow && frames >= 12) {
                     if (screenshot != nullptr) {
                         TakeScreenshot(screenshot);
                     }

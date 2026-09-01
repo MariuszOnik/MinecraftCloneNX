@@ -1,5 +1,6 @@
 #include "battle/BattleMap.hpp"
 #include "battle/TileGrid.hpp"
+#include "battle/Unit.hpp"
 #include "world/Block.hpp"
 #include "world/World.hpp"
 
@@ -91,6 +92,55 @@ int main() {
         Expect(grid.At(11, 11).height == baseHeight + 2, "centre platform is two blocks up");
         Expect(grid.At(2, 2).terrain == Terrain::Water, "the south strip is water");
         Expect(!grid.At(2, 2).walkable, "water is not walkable");
+    }
+
+    // UnitRegistry: generational handles survive removal / reuse.
+    {
+        UnitRegistry reg;
+        Unit blue;
+        blue.team = 0;
+        blue.tileX = 3;
+        blue.tileZ = 4;
+        const UnitHandle a = reg.Spawn(blue);
+        Unit red;
+        red.team = 1;
+        const UnitHandle b = reg.Spawn(red);
+
+        Expect(reg.AliveCount() == 2, "two units spawned");
+        Expect(reg.TeamCount(0) == 1 && reg.TeamCount(1) == 1, "one per team");
+        Expect(reg.Get(a) != nullptr && reg.Get(a)->tileX == 3, "handle resolves to the unit");
+
+        reg.Remove(a);
+        Expect(!reg.Alive(a) && reg.Get(a) == nullptr, "a removed handle is dead");
+        Expect(reg.Alive(b), "the other unit is untouched");
+        Expect(reg.AliveCount() == 1, "alive count drops");
+
+        const UnitHandle c = reg.Spawn(blue);  // reuses slot 0
+        Expect(c.index == a.index && !(c == a), "the slot is reused with a new generation");
+        Expect(reg.Get(a) == nullptr && reg.Get(c) != nullptr, "the stale handle stays invalid");
+
+        int seen = 0;
+        reg.ForEach([&](UnitHandle, const Unit&) { ++seen; });
+        Expect(seen == 2, "ForEach visits only the alive units");
+    }
+
+    // Facing helpers.
+    {
+        Expect(FacingTowards(5, 5, 5, 9) == Facing::South, "toward +Z is South");
+        Expect(FacingTowards(5, 5, 9, 5) == Facing::East, "toward +X is East");
+        Expect(FacingTowards(5, 5, 5, 1) == Facing::North, "toward -Z is North");
+        Expect(FacingYaw(Facing::North) == 0.0F, "North yaw is zero");
+    }
+
+    // The arena hands out spawn tiles, all walkable and clear of the water.
+    {
+        BattleMap map;
+        Expect(map.Spawns(0).size() == 3 && map.Spawns(1).size() == 3, "3v3 spawn tiles");
+        for (int team = 0; team < 2; ++team) {
+            for (const auto& [tx, tz] : map.Spawns(team)) {
+                Expect(map.Grid().At(tx, tz).walkable, "every spawn tile is walkable");
+            }
+        }
     }
 
     if (failures == 0) {

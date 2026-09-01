@@ -138,6 +138,7 @@ target_link_libraries(voxelgame_render
 add_library(voxelgame_battle STATIC
     src/battle/BattleMap.cpp
     src/battle/TileGrid.cpp
+    src/battle/Unit.cpp
 )
 target_include_directories(voxelgame_battle PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(voxelgame_battle PUBLIC voxelgame_world)
@@ -146,6 +147,8 @@ add_executable(voxelgame
     src/app/Input.cpp
     src/app/main.cpp
     src/battle/BattleApp.cpp
+    src/battle/BattleCamera.cpp
+    src/battle/render/UnitRenderer.cpp
 )
 target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render voxelgame_battle raylib)
 
