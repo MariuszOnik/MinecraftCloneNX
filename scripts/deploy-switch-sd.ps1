@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
-    # Destination SD-card root: a card-reader drive (e.g. E:\), a staging folder,
-    # or the Yuzu "SD Card" directory. Files land under <root>\switch\voxelgame\.
-    [Parameter(Mandatory = $true)]
-    [string]$SdRoot,
+    # Destination SD-card root. Defaults to the emulator's SD directory
+    # (yuzu: Settings -> Filesystem -> "SD Card"). Files land under
+    # <root>\switch\<appName>\, the same layout a real console uses -- so
+    # copying <root>\switch\<appName>\ onto the console SD is the whole port.
+    [string]$SdRoot = "D:\SDMC",
 
-    # Path to the built .nro. Defaults to the local Switch release build.
+    # Path to the built .nro. Defaults to the local Switch release build
+    # (voxeltactics.nro if present, else voxelgame.nro).
     [string]$Nro = ""
 )
 
@@ -18,7 +20,6 @@ if (-not (Test-Path -LiteralPath $assets)) {
 }
 if (-not $Nro) {
     $buildDir = Join-Path $repoRoot "build\switch-release"
-    # The tactics build ships as voxeltactics.nro; the sandbox build as voxelgame.nro.
     $tactics = Join-Path $buildDir "voxeltactics.nro"
     $sandbox = Join-Path $buildDir "voxelgame.nro"
     $Nro = if (Test-Path -LiteralPath $tactics) { $tactics } else { $sandbox }
@@ -27,7 +28,9 @@ if (-not (Test-Path -LiteralPath $Nro)) {
     throw "NRO not found at $Nro (build it with scripts\build-switch.ps1, or pass -Nro)"
 }
 
-# hbmenu folder name matches the NRO name so both titles can coexist on the card.
+# The battle NRO ships no assets in its romfs, so this deploy is mandatory:
+# models, atlases, animations and Lua scripts are all read from the SD card.
+# The hbmenu / SD folder name matches the NRO so titles can coexist.
 $appName = [System.IO.Path]::GetFileNameWithoutExtension($Nro)
 $target = Join-Path $SdRoot "switch\$appName"
 New-Item -ItemType Directory -Force -Path (Join-Path $target "assets") | Out-Null
@@ -39,4 +42,6 @@ Write-Host "Deployed to $target :"
 Get-ChildItem -Recurse -File $target | ForEach-Object {
     Write-Host "  " ($_.FullName.Substring($SdRoot.Length).TrimStart('\'))
 }
-Write-Host "On the console: hbmenu -> $appName -> $appName.nro"
+Write-Host ""
+Write-Host "Emulator: add '$target' as a yuzu game directory (or run the .nro from it)."
+Write-Host "Console : copy '$target' to <SD>\switch\$appName\"
