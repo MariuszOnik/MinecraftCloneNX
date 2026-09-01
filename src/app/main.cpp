@@ -15,6 +15,7 @@
 #include "world/Raycast.hpp"
 #include "model/Animation.hpp"
 #include "model/ModelMath.hpp"
+#include "render/AtlasLoad.hpp"
 #include "render/ModelLoad.hpp"
 #include "render/VoxelModelRenderer.hpp"
 #include "world/TerrainGenerator.hpp"
@@ -208,87 +209,6 @@ void PrintBuildInfo(const voxelgame::BuildInfo& info) {
                 static_cast<int>(info.commit.size()), info.commit.data());
 }
 
-const char* AtlasSourceLabel(const voxelgame::AssetPaths::Origin origin, const bool procedural) {
-    if (procedural) {
-        return "procedural";
-    }
-    switch (origin) {
-        case voxelgame::AssetPaths::Origin::SdCard:
-            return "SD";
-        case voxelgame::AssetPaths::Origin::Bundle:
-            return "bundled";
-        default:
-            return "assets";
-    }
-}
-
-std::optional<std::string> ReadTextFile(const std::string& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return std::nullopt;
-    }
-    std::ostringstream contents;
-    contents << file.rdbuf();
-    return contents.str();
-}
-
-struct LoadedAtlas {
-    Texture2D texture{};
-    voxelgame::BlockAtlasBinding binding{};
-    const char* sourceLabel = "procedural";
-};
-
-// Loads the atlas descriptor and texture via the asset resolver (SD card first,
-// then the bundled copy). A missing/invalid descriptor falls back to the compiled
-// block->tile defaults; a missing texture falls back to the procedural atlas.
-// Every fallback is logged so nothing fails silently.
-LoadedAtlas LoadBlockAtlas(const voxelgame::AssetPaths& assets) {
-    LoadedAtlas out;
-    std::string textureRelative = "atlases/blocks.png";
-
-    const voxelgame::AssetPaths::Resolved descriptor = assets.Resolve("atlases/blocks.json");
-    if (descriptor.found) {
-        std::string error = "unreadable";
-        std::optional<voxelgame::AtlasDescriptor> parsed;
-        if (const auto text = ReadTextFile(descriptor.path)) {
-            parsed = voxelgame::ParseAtlasDescriptor(*text, error);
-        }
-        if (parsed) {
-            out.binding.Apply(*parsed);
-            textureRelative = "atlases/" + parsed->texture;
-            TraceLog(LOG_INFO, "VOXEL: atlas descriptor '%s' -> %s (%dx%d, %d px tiles)",
-                     descriptor.path.c_str(), parsed->texture.c_str(), parsed->atlasWidth,
-                     parsed->atlasHeight, parsed->tileSize);
-        } else {
-            TraceLog(LOG_WARNING, "VOXEL: atlas descriptor '%s' invalid (%s); using defaults",
-                     descriptor.path.c_str(), error.c_str());
-        }
-    }
-
-    const voxelgame::AssetPaths::Resolved image = assets.Resolve(textureRelative);
-    Texture2D atlas{};
-    if (image.found) {
-        Image pixels = LoadImage(image.path.c_str());
-        atlas = LoadTextureFromImage(pixels);
-        UnloadImage(pixels);
-    }
-    if (atlas.id != 0) {
-        out.sourceLabel = AtlasSourceLabel(image.origin, false);
-        TraceLog(LOG_INFO, "VOXEL: loaded block atlas from '%s'", image.path.c_str());
-    } else {
-        out.sourceLabel = AtlasSourceLabel(image.origin, true);
-        TraceLog(LOG_WARNING, "VOXEL: block atlas '%s' unavailable, using procedural fallback",
-                 image.path.c_str());
-        Image pixels = voxelgame::GenerateBlockAtlasImage();
-        atlas = LoadTextureFromImage(pixels);
-        UnloadImage(pixels);
-        out.binding = voxelgame::BlockAtlasBinding{};  // procedural atlas uses the default grid
-    }
-    SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
-    out.texture = atlas;
-    return out;
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -338,7 +258,7 @@ int main(int argc, char* argv[]) {
     SetTargetFPS(60);
 
     const voxelgame::AssetPaths assets(GetApplicationDirectory());
-    const LoadedAtlas atlas = LoadBlockAtlas(assets);
+    const voxelgame::LoadedAtlas atlas = voxelgame::LoadBlockAtlas(assets, "atlases/blocks");
     const Texture2D blockAtlas = atlas.texture;
     const char* const atlasSourceLabel = atlas.sourceLabel;
 

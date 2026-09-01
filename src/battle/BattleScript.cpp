@@ -46,16 +46,30 @@ int BattleScript::LuaSpawn(lua_State* state) {
     return 1;
 }
 
-bool BattleScript::LoadBattle(const std::string& luaPath, std::string& error) {
+// set_atlas("atlases/blocks") -- chooses the block atlas for this scene. The
+// name is a base (no extension); the engine resolves "<name>.json" + its PNG,
+// SD-card first.
+int BattleScript::LuaSetAtlas(lua_State* state) {
+    auto* self = static_cast<BattleScript*>(lua_touserdata(state, lua_upvalueindex(1)));
+    const char* name = luaL_checkstring(state, 1);
+    if (self != nullptr && name != nullptr) {
+        self->atlasName_ = name;
+    }
+    return 0;
+}
+
+bool BattleScript::Load(const std::string& luaPath, std::string& error) {
     if (!host_.Ok()) {
         error = "Lua state failed to start";
         return false;
     }
     host_.RegisterFunction("spawn", &LuaSpawn, this);
-    if (!host_.DoFile(luaPath, error)) {
-        return false;
-    }
-    return host_.CallGlobal("on_battle_start", error);
+    host_.RegisterFunction("set_atlas", &LuaSetAtlas, this);
+    return host_.DoFile(luaPath, error);
+}
+
+bool BattleScript::Start(std::string& error) {
+    return host_.Ok() && host_.CallGlobal("on_battle_start", error);
 }
 
 }  // namespace voxelgame::battle

@@ -1,5 +1,10 @@
--- Skirmish 01 -- a 3v3 warm-up. The engine calls on_battle_start(); the script
--- decides where the units stand. Edit these and relaunch -- no rebuild.
+-- Skirmish 01 -- a 3v3 warm-up.
+-- Everything here is read from the SD card:
+--   sdmc:/switch/voxeltactics/assets/scripts/battles/skirmish01.lua
+-- Edit and relaunch -- no rebuild.
+
+-- Scene setup runs when the file loads.
+set_atlas("atlases/blocks")   -- looks for atlases/blocks.json + its PNG
 
 function on_battle_start()
   print("[lua] skirmish01: placing units")

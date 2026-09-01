@@ -140,6 +140,7 @@ target_include_directories(voxelgame_model SYSTEM PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 add_library(voxelgame_render STATIC
+    src/render/AtlasLoad.cpp
     src/render/BlockAtlas.cpp
     src/render/ChunkRenderMesh.cpp
     src/render/Frustum.cpp
@@ -177,9 +178,12 @@ target_link_libraries(voxelgame PRIVATE voxelgame_core voxelgame_render voxelgam
 
 # When set, no-argument launch runs the battle mode instead of the sandbox
 # (the Switch NRO has no CLI args). --sandbox still forces the open-world loop.
+# The battle build also ships as its own title (voxeltactics) and reads its
+# editable SD-card assets from sdmc:/switch/voxeltactics/assets/.
 option(VOXELGAME_BATTLE_DEFAULT "Boot straight into the battle mode" OFF)
 if(VOXELGAME_BATTLE_DEFAULT)
     target_compile_definitions(voxelgame PRIVATE VOXELGAME_BATTLE_DEFAULT)
+    target_compile_definitions(voxelgame_core PRIVATE VOXELGAME_SD_DIR="voxeltactics")
 endif()
 
 if(MINGW)
@@ -239,20 +243,33 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         VERSION "${PROJECT_VERSION}"
     )
 
-    # Assemble the romfs image: the tracked romfs/ tree plus the shared assets
-    # under assets/, mirroring the SD-card layout (sdmc:/switch/voxelgame/assets/).
+    # Assemble the romfs image. The sandbox build bundles assets/ as a fallback;
+    # the battle build ships NO assets in the NRO on purpose -- everything is
+    # edited on the SD card (sdmc:/switch/voxeltactics/assets/), so the deploy
+    # step is mandatory.
     set(VOXELGAME_ROMFS_STAGE "${CMAKE_CURRENT_BINARY_DIR}/romfs-stage")
     file(MAKE_DIRECTORY "${VOXELGAME_ROMFS_STAGE}")
-    add_custom_target(voxelgame_romfs ALL
-        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${VOXELGAME_ROMFS_STAGE}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/romfs" "${VOXELGAME_ROMFS_STAGE}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${VOXELGAME_ASSET_DIR}" "${VOXELGAME_ROMFS_STAGE}/assets"
-        BYPRODUCTS "${VOXELGAME_ROMFS_STAGE}"
-        COMMENT "Staging romfs (romfs/ + assets/ -> assets/)"
-        VERBATIM
-    )
+    if(VOXELGAME_BATTLE_DEFAULT)
+        add_custom_target(voxelgame_romfs ALL
+            COMMAND "${CMAKE_COMMAND}" -E rm -rf "${VOXELGAME_ROMFS_STAGE}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/romfs" "${VOXELGAME_ROMFS_STAGE}"
+            BYPRODUCTS "${VOXELGAME_ROMFS_STAGE}"
+            COMMENT "Staging romfs (romfs/ only -- assets live on the SD card)"
+            VERBATIM
+        )
+    else()
+        add_custom_target(voxelgame_romfs ALL
+            COMMAND "${CMAKE_COMMAND}" -E rm -rf "${VOXELGAME_ROMFS_STAGE}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/romfs" "${VOXELGAME_ROMFS_STAGE}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                    "${VOXELGAME_ASSET_DIR}" "${VOXELGAME_ROMFS_STAGE}/assets"
+            BYPRODUCTS "${VOXELGAME_ROMFS_STAGE}"
+            COMMENT "Staging romfs (romfs/ + assets/ -> assets/)"
+            VERBATIM
+        )
+    endif()
 
     nx_create_nro(
         voxelgame_nro

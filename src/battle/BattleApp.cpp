@@ -6,10 +6,9 @@
 #include "battle/Unit.hpp"
 #include "battle/render/UnitRenderer.hpp"
 #include "platform/Assets.hpp"
-#include "render/BlockAtlas.hpp"
+#include "render/AtlasLoad.hpp"
 #include "render/ChunkRenderMesh.hpp"
 #include "render/TilingShader.hpp"
-#include "world/BlockAtlasBinding.hpp"
 #include "world/ChunkMesher.hpp"
 #include "world/ChunkSection.hpp"
 
@@ -90,38 +89,39 @@ int RunBattle(int argc, char* argv[]) {
     SetTargetFPS(60);
 
     const AssetPaths assets(GetApplicationDirectory());
-
-    Image atlasImage = GenerateBlockAtlasImage();
-    const Texture2D atlas = LoadTextureFromImage(atlasImage);
-    UnloadImage(atlasImage);
-    SetTextureFilter(atlas, TEXTURE_FILTER_POINT);
-
     const Shader tilingShader = LoadTilingShader();
-    const BlockAtlasBinding binding;
-    SetTilingShaderExtent(tilingShader, binding.TileExtentU(), binding.TileExtentV());
 
     int result = 0;
     {
+        // The battle NRO ships no assets -- they live on the SD card. Warn early
+        // if the deploy step was skipped.
+        const bool assetsPresent = assets.Resolve("models/humanoid.vxm").found ||
+                                   assets.Resolve("models/humanoid.vxm.json").found;
+        if (!assetsPresent) {
+            TraceLog(LOG_WARNING,
+                     "BATTLE: assets not found -- deploy them to the SD card "
+                     "(sdmc:/switch/voxeltactics/assets/)");
+        }
+
         BattleMap map;
         UnitRegistry units;
         UnitRenderer unitRenderer(assets);
 
-        // Unit placement is the battle script's job (S3). A failure is logged
-        // loudly and falls back to a hard-coded 3v3 so the arena is not empty.
+        // Phase 1: load the script (top-level code runs, so set_atlas takes
+        // effect). A failure is logged loudly; placement falls back below.
         BattleScript scripting(map, units);
         const AssetPaths::Resolved scriptFile =
             assets.Resolve("scripts/battles/skirmish01.lua");
         std::string scriptError;
-        bool scriptOk = scriptFile.found &&
-                        scripting.LoadBattle(scriptFile.path, scriptError);
-        if (!scriptOk) {
-            TraceLog(LOG_ERROR, "BATTLE: script '%s' failed (%s); using default placement",
-                     scriptFile.path.c_str(),
-                     scriptError.empty() ? "not found" : scriptError.c_str());
-            SpawnUnits(map, units, map.Grid());
-        }
+        bool scriptOk = scriptFile.found && scripting.Load(scriptFile.path, scriptError);
 
-        // Mesh the small static arena once.
+        // The atlas the scene asked for (SD-card first), then the tiling shader
+        // extent for that grid.
+        const LoadedAtlas atlas = LoadBlockAtlas(assets, scripting.AtlasName());
+        SetTilingShaderExtent(tilingShader, atlas.binding.TileExtentU(),
+                              atlas.binding.TileExtentV());
+
+        // Mesh the small static arena once with the scene atlas.
         using SectionKey = std::array<int, 3>;
         std::map<SectionKey, ChunkRenderMesh> meshes;
         bool meshError = false;
@@ -132,15 +132,27 @@ int RunBattle(int argc, char* argv[]) {
         for (int cz = 0; cz < chunkSpanZ; ++cz) {
             for (int cx = 0; cx < chunkSpanX; ++cx) {
                 for (int sy = 0; sy < sectionsY; ++sy) {
-                    const SectionMesh data = mesher.Build(map.GetWorld(), cx, sy, cz, binding);
+                    const SectionMesh data =
+                        mesher.Build(map.GetWorld(), cx, sy, cz, atlas.binding);
                     if (data.Empty()) {
                         continue;
                     }
-                    if (!meshes[SectionKey{cx, sy, cz}].Upload(data, atlas, tilingShader)) {
+                    if (!meshes[SectionKey{cx, sy, cz}].Upload(data, atlas.texture, tilingShader)) {
                         meshError = true;
                     }
                 }
             }
+        }
+
+        // Phase 2: the script places the units. Loud log + hard-coded fallback.
+        if (scriptOk && !scripting.Start(scriptError)) {
+            scriptOk = false;
+        }
+        if (!scriptOk) {
+            TraceLog(LOG_ERROR, "BATTLE: script '%s' failed (%s); using default placement",
+                     scriptFile.path.c_str(),
+                     scriptError.empty() ? "not found" : scriptError.c_str());
+            SpawnUnits(map, units, map.Grid());
         }
 
         if (meshError) {
@@ -244,10 +256,11 @@ int RunBattle(int argc, char* argv[]) {
                 }
             }
         }
+
+        UnloadTexture(atlas.texture);
     }
 
     UnloadShader(tilingShader);
-    UnloadTexture(atlas);
     CloseWindow();
     return result;
 }

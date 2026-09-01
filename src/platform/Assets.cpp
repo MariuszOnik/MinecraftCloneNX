@@ -5,8 +5,13 @@
 namespace voxelgame {
 namespace {
 
-constexpr std::string_view kSdCardRoot = "sdmc:/switch/voxelgame/assets/";
-constexpr std::string_view kSdCardWritableRoot = "sdmc:/switch/voxelgame/";
+// SD-card app folder. The battle build overrides this to "voxeltactics" so its
+// editable assets sit next to their own NRO (see VOXELGAME_SD_DIR in CMake).
+#ifndef VOXELGAME_SD_DIR
+#define VOXELGAME_SD_DIR "voxelgame"
+#endif
+constexpr std::string_view kSdCardRoot = "sdmc:/switch/" VOXELGAME_SD_DIR "/assets/";
+constexpr std::string_view kSdCardWritableRoot = "sdmc:/switch/" VOXELGAME_SD_DIR "/";
 constexpr std::string_view kRomfsRoot = "romfs:/assets/";
 
 bool FileExists(const std::string& path) {
