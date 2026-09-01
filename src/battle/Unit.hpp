@@ -51,6 +51,11 @@ public:
     [[nodiscard]] Unit* Get(UnitHandle handle) noexcept;
     [[nodiscard]] const Unit* Get(UnitHandle handle) const noexcept;
 
+    // Look up by raw slot index (what TileGrid::Tile::occupant stores).
+    [[nodiscard]] Unit* AtIndex(int index) noexcept;
+    [[nodiscard]] const Unit* AtIndex(int index) const noexcept;
+    [[nodiscard]] UnitHandle HandleAt(int index) const noexcept;
+
     [[nodiscard]] std::size_t AliveCount() const noexcept { return aliveCount_; }
     [[nodiscard]] std::size_t TeamCount(int team) const noexcept;
 

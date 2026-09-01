@@ -5,6 +5,7 @@
 #include "battle/BattleScript.hpp"
 #include "battle/Unit.hpp"
 #include "battle/render/UnitRenderer.hpp"
+#include "battle/Pathfind.hpp"
 #include "platform/Assets.hpp"
 #include "render/AtlasLoad.hpp"
 #include "render/ChunkRenderMesh.hpp"
@@ -174,6 +175,23 @@ int RunBattle(int argc, char* argv[]) {
             camera.FollowInstant({static_cast<float>(map.OriginX()) + map.SizeX() * 0.5F, 5.0F,
                                   static_cast<float>(map.OriginZ()) + map.SizeZ() * 0.5F});
 
+            const TileGrid& grid = map.Grid();
+            int cursorX = map.OriginX() + map.SizeX() / 2;
+            int cursorZ = map.OriginZ() + map.SizeZ() / 2;
+            int selected = -1;  // unit slot index, -1 = none
+
+            if (smokeWindow) {
+                // Pre-select a player unit and park the cursor a few tiles away
+                // so the screenshot shows the movement range + a path.
+                units.ForEach([&](UnitHandle h, const Unit& u) {
+                    if (selected < 0 && u.team == 0) {
+                        selected = h.index;
+                        cursorX = u.tileX + 2;
+                        cursorZ = u.tileZ + 3;
+                    }
+                });
+            }
+
             int frames = 0;
             while (!WindowShouldClose()) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
@@ -202,6 +220,61 @@ int RunBattle(int argc, char* argv[]) {
                 camera.Update(dt);
                 unitRenderer.Update(dt);
 
+                // Cursor: the topmost tile the mouse ray crosses (heightfield).
+                const Ray ray = GetScreenToWorldRay(GetMousePosition(), camera.Camera());
+                if (!smokeWindow && std::abs(ray.direction.y) > 1.0e-5F) {
+                    float bestT = 1.0e9F;
+                    for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
+                        for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
+                            const Tile& tile = grid.At(tx, tz);
+                            if (!tile.hasFloor) {
+                                continue;
+                            }
+                            const float hitT =
+                                (static_cast<float>(tile.height) - ray.position.y) / ray.direction.y;
+                            if (hitT <= 0.0F || hitT >= bestT) {
+                                continue;
+                            }
+                            const float hx = ray.position.x + ray.direction.x * hitT;
+                            const float hz = ray.position.z + ray.direction.z * hitT;
+                            if (hx >= static_cast<float>(tx) && hx < static_cast<float>(tx + 1) &&
+                                hz >= static_cast<float>(tz) && hz < static_cast<float>(tz + 1)) {
+                                bestT = hitT;
+                                cursorX = tx;
+                                cursorZ = tz;
+                            }
+                        }
+                    }
+                }
+
+                // Confirm / cancel (LMB / A, RMB / B).
+                const bool confirm = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+                const bool cancel = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+                                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
+                if (cancel) {
+                    selected = -1;
+                } else if (confirm) {
+                    const int occ = grid.At(cursorX, cursorZ).occupant;
+                    const Unit* clicked = units.AtIndex(occ);
+                    if (clicked != nullptr && clicked->team == 0) {
+                        selected = (selected == occ) ? -1 : occ;
+                    }
+                }
+
+                // Movement range of the selected unit, and a path preview.
+                ReachableSet reach(grid.OriginX(), grid.OriginZ(), grid.SizeX(), grid.SizeZ());
+                std::vector<PathStep> preview;
+                const Unit* sel = units.AtIndex(selected);
+                if (sel != nullptr) {
+                    reach = ComputeReachable(grid, sel->tileX, sel->tileZ, sel->moveTiles,
+                                             sel->jumpHeight);
+                    if (reach.Contains(cursorX, cursorZ)) {
+                        preview = ComputePath(grid, sel->tileX, sel->tileZ, cursorX, cursorZ,
+                                              sel->jumpHeight);
+                    }
+                }
+
                 BeginDrawing();
                 ClearBackground(Color{20, 24, 33, 255});
                 BeginMode3D(camera.Camera());
@@ -223,27 +296,57 @@ int RunBattle(int argc, char* argv[]) {
                 rlDrawRenderBatchActive();
                 rlEnableDepthMask();
 
-                const TileGrid& grid = map.Grid();
-                for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
-                    for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
-                        const Tile& tile = grid.At(tx, tz);
-                        if (tile.walkable) {
-                            DrawTileOutline(tx, tz, static_cast<float>(tile.height),
-                                            Color{90, 220, 120, 90});
-                        }
-                    }
+                // Movement-range fill for the selected unit.
+                rlDrawRenderBatchActive();
+                rlDisableDepthMask();
+                BeginBlendMode(BLEND_ALPHA);
+                for (const PathStep& t : reach.Tiles()) {
+                    const float h = static_cast<float>(grid.At(t.x, t.z).height) + 0.03F;
+                    const Vector3 c{static_cast<float>(t.x) + 0.5F, h,
+                                    static_cast<float>(t.z) + 0.5F};
+                    DrawPlane(c, {0.94F, 0.94F}, Color{70, 140, 255, 150});
+                    DrawTileOutline(t.x, t.z, h, Color{150, 200, 255, 200});
                 }
+                for (const PathStep& t : preview) {
+                    const float h = static_cast<float>(grid.At(t.x, t.z).height) + 0.06F;
+                    DrawPlane({static_cast<float>(t.x) + 0.5F, h, static_cast<float>(t.z) + 0.5F},
+                              {0.55F, 0.55F}, Color{255, 240, 130, 210});
+                }
+                EndBlendMode();
+                rlDrawRenderBatchActive();
+                rlEnableDepthMask();
+
+                // Selected unit's tile and the cursor.
+                if (sel != nullptr) {
+                    DrawTileOutline(sel->tileX, sel->tileZ,
+                                    static_cast<float>(grid.At(sel->tileX, sel->tileZ).height),
+                                    Color{120, 255, 150, 255});
+                }
+                DrawTileOutline(cursorX, cursorZ,
+                                static_cast<float>(grid.At(cursorX, cursorZ).height),
+                                Color{255, 235, 90, 255});
 
                 EndMode3D();
 
-                DrawRectangle(12, 12, 380, 96, Fade(BLACK, 0.72F));
-                DrawText("VOXEL TACTICS  (S3)", 24, 22, 22, LIME);
+                DrawRectangle(12, 12, 396, 118, Fade(BLACK, 0.72F));
+                DrawText("VOXEL TACTICS  (S4)", 24, 22, 22, LIME);
                 DrawText(TextFormat("Units: %i blue / %i red   Placement: %s",
                                     static_cast<int>(units.TeamCount(0)),
                                     static_cast<int>(units.TeamCount(1)),
-                                    scriptOk ? "skirmish01.lua" : "default (script failed)"),
-                         24, 52, 18, scriptOk ? RAYWHITE : Color{240, 150, 90, 255});
-                DrawText("WASD/stick pan   Q/E rotate   wheel/ZL-ZR zoom", 24, 78, 16, GRAY);
+                                    scriptOk ? "skirmish01.lua" : "default"),
+                         24, 50, 17, scriptOk ? RAYWHITE : Color{240, 150, 90, 255});
+                if (sel != nullptr) {
+                    DrawText(TextFormat("Selected: blue unit  move %i  jump %i  range %i tiles",
+                                        sel->moveTiles, sel->jumpHeight,
+                                        static_cast<int>(reach.Tiles().size())),
+                             24, 72, 17, Color{140, 235, 170, 255});
+                } else {
+                    DrawText(TextFormat("Cursor: %i,%i   (click a blue unit to select)", cursorX,
+                                        cursorZ),
+                             24, 72, 17, LIGHTGRAY);
+                }
+                DrawText("mouse cursor   LMB select / RMB cancel   Q/E rotate   wheel zoom", 24, 100,
+                         15, GRAY);
 
                 EndDrawing();
 

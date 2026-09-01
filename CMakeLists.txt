@@ -161,6 +161,7 @@ target_link_libraries(voxelgame_script PUBLIC lua)
 add_library(voxelgame_battle STATIC
     src/battle/BattleMap.cpp
     src/battle/BattleScript.cpp
+    src/battle/Pathfind.cpp
     src/battle/TileGrid.cpp
     src/battle/Unit.cpp
 )

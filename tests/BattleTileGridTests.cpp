@@ -1,4 +1,5 @@
 #include "battle/BattleMap.hpp"
+#include "battle/Pathfind.hpp"
 #include "battle/TileGrid.hpp"
 #include "battle/Unit.hpp"
 #include "script/LuaHost.hpp"
@@ -148,6 +149,55 @@ int main() {
                 Expect(map.Grid().At(tx, tz).walkable, "every spawn tile is walkable");
             }
         }
+    }
+
+    // Pathfinding: a wall of raised tiles blocks a low-jump unit but not a
+    // high-jump one, and an occupied tile is impassable.
+    {
+        World world(1);
+        world.EnsureColumn(0, 0);
+        for (int z = 0; z < 6; ++z) {
+            for (int x = 0; x < 6; ++x) {
+                world.SetBlock(x, 0, z, blocks::Stone);           // floor, feet at Y=1
+            }
+        }
+        for (int z = 0; z < 6; ++z) {
+            world.SetBlock(3, 1, z, blocks::Stone);               // a wall at x=3, feet at Y=2
+        }
+
+        TileGrid grid(0, 0, 6, 6);
+        grid.Rebuild(world);
+        Expect(grid.At(2, 2).height == 1 && grid.At(3, 2).height == 2, "the wall is one step up");
+
+        const ReachableSet lowJump = ComputeReachable(grid, 0, 2, 12, 0);
+        Expect(lowJump.Contains(2, 2) && !lowJump.Contains(3, 2),
+               "jump 0 cannot climb the wall");
+        Expect(!lowJump.Contains(5, 2), "so the far side is unreachable");
+
+        const ReachableSet highJump = ComputeReachable(grid, 0, 2, 12, 1);
+        Expect(highJump.Contains(3, 2) && highJump.Contains(5, 2),
+               "jump 1 crosses the wall and reaches the far side");
+
+        const ReachableSet shortMove = ComputeReachable(grid, 0, 2, 2, 1);
+        Expect(shortMove.Contains(2, 2) && !shortMove.Contains(3, 2),
+               "a 2-tile budget stops before the wall");
+
+        const auto path = ComputePath(grid, 0, 0, 5, 5, 1);
+        Expect(!path.empty() && path.front().x == 0 && path.front().z == 0 &&
+                   path.back().x == 5 && path.back().z == 5,
+               "a path runs from start to goal inclusive");
+        Expect(path.size() == 11, "the shortest 4-connected path is 10 steps (11 tiles)");
+
+        grid.At(2, 2).occupant = 7;  // someone standing there
+        const auto blocked = ComputePath(grid, 0, 2, 4, 2, 1);
+        bool routesThroughOccupied = false;
+        for (const auto& step : blocked) {
+            if (step.x == 2 && step.z == 2) {
+                routesThroughOccupied = true;
+            }
+        }
+        Expect(!blocked.empty() && !routesThroughOccupied,
+               "a path routes around an occupied tile");
     }
 
     // LuaHost: run chunks, call globals, capture errors, and reach C bindings.

@@ -78,6 +78,30 @@ const Unit* UnitRegistry::Get(const UnitHandle handle) const noexcept {
     return Alive(handle) ? &slots_[static_cast<std::size_t>(handle.index)].unit : nullptr;
 }
 
+Unit* UnitRegistry::AtIndex(const int index) noexcept {
+    if (index < 0 || static_cast<std::size_t>(index) >= slots_.size() ||
+        !slots_[static_cast<std::size_t>(index)].alive) {
+        return nullptr;
+    }
+    return &slots_[static_cast<std::size_t>(index)].unit;
+}
+
+const Unit* UnitRegistry::AtIndex(const int index) const noexcept {
+    if (index < 0 || static_cast<std::size_t>(index) >= slots_.size() ||
+        !slots_[static_cast<std::size_t>(index)].alive) {
+        return nullptr;
+    }
+    return &slots_[static_cast<std::size_t>(index)].unit;
+}
+
+UnitHandle UnitRegistry::HandleAt(const int index) const noexcept {
+    if (index < 0 || static_cast<std::size_t>(index) >= slots_.size() ||
+        !slots_[static_cast<std::size_t>(index)].alive) {
+        return UnitHandle{};
+    }
+    return UnitHandle{index, slots_[static_cast<std::size_t>(index)].generation};
+}
+
 std::size_t UnitRegistry::TeamCount(const int team) const noexcept {
     std::size_t count = 0;
     for (const Slot& slot : slots_) {
