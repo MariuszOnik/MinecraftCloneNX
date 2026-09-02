@@ -202,33 +202,38 @@ int RunBattle(int argc, char* argv[]) {
                 cursorX = std::clamp(cursorX + dx, gx0, gx1);
                 cursorZ = std::clamp(cursorZ + dz, gz0, gz1);
             };
-            // World tile step (dx, dz) whose screen projection best matches a
-            // desired screen direction -- makes the cursor camera-relative at any
-            // rotation and independent of stick sign quirks.
+            // Moves the cursor toward a screen direction. At our 45-degree iso
+            // rotations the four world axes project to screen *diagonals*, so we
+            // search the 8 neighbours (the cursor may step diagonally -- it is a
+            // pointer, not a path) and pick the one whose screen projection best
+            // matches. Works at every camera rotation, immune to stick sign.
             const auto stepForScreen = [&](const float sdx, const float sdy) {
                 const Camera3D cam = camera.Camera();
                 const Vector3 base = tileWorld(cursorX, cursorZ);
                 const Vector2 o = GetWorldToScreen(base, cam);
-                float best = -1.0e9F;
+                float best = 0.30F;  // require a real match, not a near-perpendicular one
                 int bx = 0;
                 int bz = 0;
-                for (const auto& s : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1},
-                                      std::pair{0, -1}}) {
-                    const Vector2 p = GetWorldToScreen(
-                        {base.x + static_cast<float>(s.first), base.y,
-                         base.z + static_cast<float>(s.second)},
-                        cam);
-                    const float vx = p.x - o.x;
-                    const float vy = p.y - o.y;
-                    const float len = std::sqrt(vx * vx + vy * vy);
-                    if (len < 1.0e-4F) {
-                        continue;
-                    }
-                    const float score = (vx / len) * sdx + (vy / len) * sdy;
-                    if (score > best) {
-                        best = score;
-                        bx = s.first;
-                        bz = s.second;
+                for (int dz = -1; dz <= 1; ++dz) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        if (dx == 0 && dz == 0) {
+                            continue;
+                        }
+                        const Vector2 p = GetWorldToScreen(
+                            {base.x + static_cast<float>(dx), base.y, base.z + static_cast<float>(dz)},
+                            cam);
+                        const float vx = p.x - o.x;
+                        const float vy = p.y - o.y;
+                        const float len = std::sqrt(vx * vx + vy * vy);
+                        if (len < 1.0e-4F) {
+                            continue;
+                        }
+                        const float score = (vx / len) * sdx + (vy / len) * sdy;
+                        if (score > best) {
+                            best = score;
+                            bx = dx;
+                            bz = dz;
+                        }
                     }
                 }
                 moveCursor(bx, bz);
