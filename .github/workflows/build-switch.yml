@@ -26,20 +26,26 @@ jobs:
       - name: Validate and stage package
         shell: bash
         run: |
-          test -s build/switch-release/voxelgame.nro
-          test "$(dd if=build/switch-release/voxelgame.nro bs=1 skip=16 count=4 status=none)" = "NRO0"
+          # The tactics build ships as voxeltactics.nro with no assets in romfs;
+          # find whichever NRO the preset produced.
+          nro=$(ls build/switch-release/voxel*.nro | head -n1)
+          app=$(basename "$nro" .nro)
+          test -s "$nro"
+          test "$(dd if="$nro" bs=1 skip=16 count=4 status=none)" = "NRO0"
           mkdir -p out/VoxelGame-Switch/romfs
-          cp build/switch-release/voxelgame.nro out/VoxelGame-Switch/
+          cp "$nro" out/VoxelGame-Switch/
           cp build/switch-release/build-info.txt out/VoxelGame-Switch/
           cp -R build/switch-release/romfs-stage/. out/VoxelGame-Switch/romfs/
-          # Ready-to-copy SD-card tree: drop the contents of sdcard/ onto the
-          # Switch SD root, then launch switch/voxelgame/voxelgame.nro from hbmenu.
-          # Assets load from sdmc:/switch/voxelgame/assets/ (romfs is the fallback).
-          mkdir -p out/VoxelGame-Switch/sdcard/switch/voxelgame
-          cp build/switch-release/voxelgame.nro out/VoxelGame-Switch/sdcard/switch/voxelgame/
-          cp -R assets out/VoxelGame-Switch/sdcard/switch/voxelgame/
-          test -f out/VoxelGame-Switch/sdcard/switch/voxelgame/voxelgame.nro
-          test -f out/VoxelGame-Switch/sdcard/switch/voxelgame/assets/atlases/blocks.png
+          # Ready-to-copy SD-card tree: drop sdcard/ onto the Switch SD root,
+          # then launch switch/<app>/<app>.nro from hbmenu. All assets (models,
+          # atlases, animations, Lua scripts) load from sdmc:/switch/<app>/assets/.
+          dst="out/VoxelGame-Switch/sdcard/switch/$app"
+          mkdir -p "$dst"
+          cp "$nro" "$dst/"
+          cp -R assets "$dst/"
+          test -f "$dst/$app.nro"
+          test -f "$dst/assets/atlases/blocks.png"
+          test -f "$dst/assets/scripts/battles/skirmish01.lua"
 
       - name: Upload Switch package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

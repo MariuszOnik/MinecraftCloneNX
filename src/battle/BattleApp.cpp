@@ -176,9 +176,19 @@ int RunBattle(int argc, char* argv[]) {
                                   static_cast<float>(map.OriginZ()) + map.SizeZ() * 0.5F});
 
             const TileGrid& grid = map.Grid();
-            int cursorX = map.OriginX() + map.SizeX() / 2;
-            int cursorZ = map.OriginZ() + map.SizeZ() / 2;
+            const int gx0 = grid.OriginX();
+            const int gz0 = grid.OriginZ();
+            const int gx1 = gx0 + grid.SizeX() - 1;
+            const int gz1 = gz0 + grid.SizeZ() - 1;
+            int cursorX = (gx0 + gx1) / 2;
+            int cursorZ = (gz0 + gz1) / 2;
             int selected = -1;  // unit slot index, -1 = none
+            float stickRepeat = 0.0F;  // seconds until the held stick steps again
+
+            const auto moveCursor = [&](const int dx, const int dz) {
+                cursorX = std::clamp(cursorX + dx, gx0, gx1);
+                cursorZ = std::clamp(cursorZ + dz, gz0, gz1);
+            };
 
             if (smokeWindow) {
                 // Pre-select a player unit and park the cursor a few tiles away
@@ -195,17 +205,41 @@ int RunBattle(int argc, char* argv[]) {
             int frames = 0;
             while (!WindowShouldClose()) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
+                const bool pad = IsGamepadAvailable(0);
 
-                float panF = 0.0F;
-                float panR = 0.0F;
-                if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) panF += 1.0F;
-                if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) panF -= 1.0F;
-                if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) panR += 1.0F;
-                if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) panR -= 1.0F;
+                // --- cursor: d-pad / arrows step it one tile; the left stick
+                // steps it on a repeat. World axes (camera-relative is later
+                // polish). The mouse still drives it on PC. ---
+                if (IsKeyPressed(KEY_UP) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
+                    moveCursor(0, -1);
+                }
+                if (IsKeyPressed(KEY_DOWN) ||
+                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) {
+                    moveCursor(0, 1);
+                }
+                if (IsKeyPressed(KEY_LEFT) ||
+                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) {
+                    moveCursor(-1, 0);
+                }
+                if (IsKeyPressed(KEY_RIGHT) ||
+                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) {
+                    moveCursor(1, 0);
+                }
+                stickRepeat -= dt;
+                if (pad) {
+                    const float sx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+                    const float sz = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+                    if (std::abs(sx) < 0.5F && std::abs(sz) < 0.5F) {
+                        stickRepeat = 0.0F;
+                    } else if (stickRepeat <= 0.0F) {
+                        moveCursor(std::abs(sx) > std::abs(sz) ? (sx > 0 ? 1 : -1) : 0,
+                                   std::abs(sz) >= std::abs(sx) ? (sz > 0 ? 1 : -1) : 0);
+                        stickRepeat = 0.16F;
+                    }
+                }
+
                 float zoom = GetMouseWheelMove();
-                if (IsGamepadAvailable(0)) {
-                    panR += GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
-                    panF -= GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+                if (pad) {
                     zoom += (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ? 1.0F : 0.0F) -
                             (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? 1.0F : 0.0F);
                 }
@@ -215,14 +249,17 @@ int RunBattle(int argc, char* argv[]) {
                 if (IsKeyPressed(KEY_E) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
                     camera.RotateRight();
                 }
-                camera.Pan(std::clamp(panF, -1.0F, 1.0F), std::clamp(panR, -1.0F, 1.0F), dt);
                 camera.Zoom(zoom);
+                // The camera follows the cursor tile.
+                camera.Follow({static_cast<float>(cursorX) + 0.5F,
+                               static_cast<float>(grid.At(cursorX, cursorZ).height),
+                               static_cast<float>(cursorZ) + 0.5F});
                 camera.Update(dt);
                 unitRenderer.Update(dt);
 
-                // Cursor: the topmost tile the mouse ray crosses (heightfield).
+                // Mouse cursor (PC): the topmost tile the ray crosses.
                 const Ray ray = GetScreenToWorldRay(GetMousePosition(), camera.Camera());
-                if (!smokeWindow && std::abs(ray.direction.y) > 1.0e-5F) {
+                if (!smokeWindow && !pad && std::abs(ray.direction.y) > 1.0e-5F) {
                     float bestT = 1.0e9F;
                     for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
                         for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
@@ -345,8 +382,8 @@ int RunBattle(int argc, char* argv[]) {
                                         cursorZ),
                              24, 72, 17, LIGHTGRAY);
                 }
-                DrawText("mouse cursor   LMB select / RMB cancel   Q/E rotate   wheel zoom", 24, 100,
-                         15, GRAY);
+                DrawText("D-pad/arrows/mouse cursor   A/LMB select   B/RMB cancel   Q/E rotate",
+                         24, 100, 15, GRAY);
 
                 EndDrawing();
 
