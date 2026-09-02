@@ -21,6 +21,8 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <utility>
+#include <vector>
 
 namespace voxelgame::battle {
 namespace {
@@ -175,7 +177,7 @@ int RunBattle(int argc, char* argv[]) {
             camera.FollowInstant({static_cast<float>(map.OriginX()) + map.SizeX() * 0.5F, 5.0F,
                                   static_cast<float>(map.OriginZ()) + map.SizeZ() * 0.5F});
 
-            const TileGrid& grid = map.Grid();
+            TileGrid& grid = map.Grid();  // occupancy mutates as units move
             const int gx0 = grid.OriginX();
             const int gz0 = grid.OriginZ();
             const int gx1 = gx0 + grid.SizeX() - 1;
@@ -183,65 +185,136 @@ int RunBattle(int argc, char* argv[]) {
             int cursorX = (gx0 + gx1) / 2;
             int cursorZ = (gz0 + gz1) / 2;
             int selected = -1;  // unit slot index, -1 = none
-            float stickRepeat = 0.0F;  // seconds until the held stick steps again
+            float stickRepeat = 0.0F;
 
+            struct Walk {
+                int unit = -1;
+                std::vector<PathStep> path;
+                float t = 0.0F;  // tiles travelled along the path
+            } walk;
+
+            const auto tileWorld = [&](const int tx, const int tz) {
+                return Vector3{static_cast<float>(tx) + 0.5F,
+                               static_cast<float>(grid.At(tx, tz).height),
+                               static_cast<float>(tz) + 0.5F};
+            };
             const auto moveCursor = [&](const int dx, const int dz) {
                 cursorX = std::clamp(cursorX + dx, gx0, gx1);
                 cursorZ = std::clamp(cursorZ + dz, gz0, gz1);
             };
+            // World tile step (dx, dz) whose screen projection best matches a
+            // desired screen direction -- makes the cursor camera-relative at any
+            // rotation and independent of stick sign quirks.
+            const auto stepForScreen = [&](const float sdx, const float sdy) {
+                const Camera3D cam = camera.Camera();
+                const Vector3 base = tileWorld(cursorX, cursorZ);
+                const Vector2 o = GetWorldToScreen(base, cam);
+                float best = -1.0e9F;
+                int bx = 0;
+                int bz = 0;
+                for (const auto& s : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1},
+                                      std::pair{0, -1}}) {
+                    const Vector2 p = GetWorldToScreen(
+                        {base.x + static_cast<float>(s.first), base.y,
+                         base.z + static_cast<float>(s.second)},
+                        cam);
+                    const float vx = p.x - o.x;
+                    const float vy = p.y - o.y;
+                    const float len = std::sqrt(vx * vx + vy * vy);
+                    if (len < 1.0e-4F) {
+                        continue;
+                    }
+                    const float score = (vx / len) * sdx + (vy / len) * sdy;
+                    if (score > best) {
+                        best = score;
+                        bx = s.first;
+                        bz = s.second;
+                    }
+                }
+                moveCursor(bx, bz);
+            };
 
             if (smokeWindow) {
-                // Pre-select a player unit and park the cursor a few tiles away
-                // so the screenshot shows the movement range + a path.
+                // Auto-select a player unit and start a short walk so the
+                // screenshot catches a unit mid-move.
                 units.ForEach([&](UnitHandle h, const Unit& u) {
                     if (selected < 0 && u.team == 0) {
                         selected = h.index;
-                        cursorX = u.tileX + 2;
-                        cursorZ = u.tileZ + 3;
                     }
                 });
+                const Unit* u = units.AtIndex(selected);
+                if (u != nullptr) {
+                    const auto p = ComputePath(grid, u->tileX, u->tileZ, u->tileX + 2,
+                                               u->tileZ + 2, u->jumpHeight);
+                    if (p.size() >= 2) {
+                        walk.unit = selected;
+                        walk.path = p;
+                        grid.At(u->tileX, u->tileZ).occupant = -1;
+                        unitRenderer.BeginWalk(selected);
+                    }
+                }
             }
 
             int frames = 0;
             while (!WindowShouldClose()) {
                 const float dt = std::min(GetFrameTime(), 0.05F);
                 const bool pad = IsGamepadAvailable(0);
+                const bool walking = walk.unit >= 0;
 
-                // --- cursor: d-pad / arrows step it one tile; the left stick
-                // steps it on a repeat. World axes (camera-relative is later
-                // polish). The mouse still drives it on PC. ---
-                if (IsKeyPressed(KEY_UP) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
-                    moveCursor(0, -1);
-                }
-                if (IsKeyPressed(KEY_DOWN) ||
-                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) {
-                    moveCursor(0, 1);
-                }
-                if (IsKeyPressed(KEY_LEFT) ||
-                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) {
-                    moveCursor(-1, 0);
-                }
-                if (IsKeyPressed(KEY_RIGHT) ||
-                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) {
-                    moveCursor(1, 0);
-                }
-                stickRepeat -= dt;
-                if (pad) {
-                    const float sx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
-                    const float sz = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
-                    if (std::abs(sx) < 0.5F && std::abs(sz) < 0.5F) {
-                        stickRepeat = 0.0F;
-                    } else if (stickRepeat <= 0.0F) {
-                        moveCursor(std::abs(sx) > std::abs(sz) ? (sx > 0 ? 1 : -1) : 0,
-                                   std::abs(sz) >= std::abs(sx) ? (sz > 0 ? 1 : -1) : 0);
-                        stickRepeat = 0.16F;
+#if defined(__SWITCH__)
+                constexpr float kStickYSign = -1.0F;  // libnx reports "up" as +y
+#else
+                constexpr float kStickYSign = 1.0F;
+#endif
+
+                // --- cursor: d-pad / arrows step it one tile in the matching
+                // screen direction; the left stick steps it on a repeat. Frozen
+                // while a unit walks. ---
+                if (!walking) {
+                    if (IsKeyPressed(KEY_UP) ||
+                        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
+                        stepForScreen(0.0F, -1.0F);
+                    }
+                    if (IsKeyPressed(KEY_DOWN) ||
+                        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) {
+                        stepForScreen(0.0F, 1.0F);
+                    }
+                    if (IsKeyPressed(KEY_LEFT) ||
+                        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) {
+                        stepForScreen(-1.0F, 0.0F);
+                    }
+                    if (IsKeyPressed(KEY_RIGHT) ||
+                        IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) {
+                        stepForScreen(1.0F, 0.0F);
+                    }
+                    stickRepeat -= dt;
+                    if (pad) {
+                        const float sx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+                        const float sy =
+                            GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y) * kStickYSign;
+                        if (std::abs(sx) < 0.4F && std::abs(sy) < 0.4F) {
+                            stickRepeat = 0.0F;
+                        } else if (stickRepeat <= 0.0F) {
+                            const bool horiz = std::abs(sx) >= std::abs(sy);
+                            stepForScreen(horiz ? (sx > 0.0F ? 1.0F : -1.0F) : 0.0F,
+                                          horiz ? 0.0F : (sy > 0.0F ? 1.0F : -1.0F));
+                            stickRepeat = 0.15F;
+                        }
                     }
                 }
 
                 float zoom = GetMouseWheelMove();
+                float panF = 0.0F;
+                float panR = 0.0F;
+                if (IsKeyDown(KEY_W)) panF += 1.0F;
+                if (IsKeyDown(KEY_S)) panF -= 1.0F;
+                if (IsKeyDown(KEY_D)) panR += 1.0F;
+                if (IsKeyDown(KEY_A)) panR -= 1.0F;
                 if (pad) {
                     zoom += (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ? 1.0F : 0.0F) -
                             (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? 1.0F : 0.0F);
+                    panR += GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+                    panF -= GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * kStickYSign;
                 }
                 if (IsKeyPressed(KEY_Q) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
                     camera.RotateLeft();
@@ -250,16 +323,13 @@ int RunBattle(int argc, char* argv[]) {
                     camera.RotateRight();
                 }
                 camera.Zoom(zoom);
-                // The camera follows the cursor tile.
-                camera.Follow({static_cast<float>(cursorX) + 0.5F,
-                               static_cast<float>(grid.At(cursorX, cursorZ).height),
-                               static_cast<float>(cursorZ) + 0.5F});
+                camera.Pan(std::clamp(panF, -1.0F, 1.0F), std::clamp(panR, -1.0F, 1.0F), dt);
                 camera.Update(dt);
                 unitRenderer.Update(dt);
 
                 // Mouse cursor (PC): the topmost tile the ray crosses.
                 const Ray ray = GetScreenToWorldRay(GetMousePosition(), camera.Camera());
-                if (!smokeWindow && !pad && std::abs(ray.direction.y) > 1.0e-5F) {
+                if (!smokeWindow && !pad && !walking && std::abs(ray.direction.y) > 1.0e-5F) {
                     float bestT = 1.0e9F;
                     for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
                         for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
@@ -284,31 +354,78 @@ int RunBattle(int argc, char* argv[]) {
                     }
                 }
 
-                // Confirm / cancel (LMB / A, RMB / B).
-                const bool confirm = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
-                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
-                const bool cancel = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
-                                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
-                if (cancel) {
-                    selected = -1;
-                } else if (confirm) {
-                    const int occ = grid.At(cursorX, cursorZ).occupant;
-                    const Unit* clicked = units.AtIndex(occ);
-                    if (clicked != nullptr && clicked->team == 0) {
-                        selected = (selected == occ) ? -1 : occ;
-                    }
-                }
-
                 // Movement range of the selected unit, and a path preview.
-                ReachableSet reach(grid.OriginX(), grid.OriginZ(), grid.SizeX(), grid.SizeZ());
+                ReachableSet reach(gx0, gz0, grid.SizeX(), grid.SizeZ());
                 std::vector<PathStep> preview;
                 const Unit* sel = units.AtIndex(selected);
-                if (sel != nullptr) {
+                if (sel != nullptr && !walking) {
                     reach = ComputeReachable(grid, sel->tileX, sel->tileZ, sel->moveTiles,
                                              sel->jumpHeight);
                     if (reach.Contains(cursorX, cursorZ)) {
                         preview = ComputePath(grid, sel->tileX, sel->tileZ, cursorX, cursorZ,
                                               sel->jumpHeight);
+                    }
+                }
+
+                // Confirm / cancel (LMB / A, RMB / B).
+                const bool confirm = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+                const bool cancel = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+                                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
+                if (!walking && cancel) {
+                    selected = -1;
+                } else if (!walking && confirm) {
+                    const int occ = grid.At(cursorX, cursorZ).occupant;
+                    const Unit* onTile = units.AtIndex(occ);
+                    if (sel != nullptr && occ < 0 && reach.Contains(cursorX, cursorZ) &&
+                        !preview.empty()) {
+                        // Walk the selected unit to the target tile.
+                        walk.unit = selected;
+                        walk.path = preview;
+                        walk.t = 0.0F;
+                        grid.At(sel->tileX, sel->tileZ).occupant = -1;
+                        unitRenderer.BeginWalk(walk.unit);
+                    } else if (onTile != nullptr && onTile->team == 0) {
+                        selected = (selected == occ) ? -1 : occ;
+                        if (selected >= 0) {
+                            camera.Follow(tileWorld(onTile->tileX, onTile->tileZ));
+                        }
+                    } else {
+                        selected = -1;
+                    }
+                }
+
+                // Advance a walk in progress.
+                if (walk.unit >= 0) {
+                    Unit* mover = units.AtIndex(walk.unit);
+                    constexpr float kWalkSpeed = 4.5F;  // tiles per second
+                    walk.t += kWalkSpeed * dt;
+                    const int seg = static_cast<int>(walk.t);
+                    if (mover == nullptr || walk.path.size() < 2 ||
+                        seg >= static_cast<int>(walk.path.size()) - 1) {
+                        if (mover != nullptr && walk.path.size() >= 2) {
+                            const PathStep prev = walk.path[walk.path.size() - 2];
+                            const PathStep goal = walk.path.back();
+                            mover->tileX = goal.x;
+                            mover->tileZ = goal.z;
+                            mover->facing = FacingTowards(prev.x, prev.z, goal.x, goal.z);
+                            grid.At(goal.x, goal.z).occupant = walk.unit;
+                        }
+                        unitRenderer.EndWalk();
+                        walk.unit = -1;
+                        selected = -1;  // one action per unit for now
+                    } else {
+                        const float frac = walk.t - static_cast<float>(seg);
+                        const PathStep a = walk.path[static_cast<std::size_t>(seg)];
+                        const PathStep b = walk.path[static_cast<std::size_t>(seg) + 1];
+                        const Vector3 pa = tileWorld(a.x, a.z);
+                        const Vector3 pb = tileWorld(b.x, b.z);
+                        const Vector3 pos{pa.x + (pb.x - pa.x) * frac, pa.y + (pb.y - pa.y) * frac,
+                                          pa.z + (pb.z - pa.z) * frac};
+                        const float yaw = std::atan2(static_cast<float>(b.x - a.x),
+                                                     -static_cast<float>(b.z - a.z));
+                        unitRenderer.SetWalk(pos, yaw);
+                        camera.Follow(pos);
                     }
                 }
 
@@ -353,36 +470,40 @@ int RunBattle(int argc, char* argv[]) {
                 rlDrawRenderBatchActive();
                 rlEnableDepthMask();
 
-                // Selected unit's tile and the cursor.
-                if (sel != nullptr) {
+                // Selected unit's tile and the cursor (hidden during a walk).
+                if (sel != nullptr && !walking) {
                     DrawTileOutline(sel->tileX, sel->tileZ,
                                     static_cast<float>(grid.At(sel->tileX, sel->tileZ).height),
                                     Color{120, 255, 150, 255});
                 }
-                DrawTileOutline(cursorX, cursorZ,
-                                static_cast<float>(grid.At(cursorX, cursorZ).height),
-                                Color{255, 235, 90, 255});
+                if (!walking) {
+                    DrawTileOutline(cursorX, cursorZ,
+                                    static_cast<float>(grid.At(cursorX, cursorZ).height),
+                                    Color{255, 235, 90, 255});
+                }
 
                 EndMode3D();
 
                 DrawRectangle(12, 12, 396, 118, Fade(BLACK, 0.72F));
-                DrawText("VOXEL TACTICS  (S4)", 24, 22, 22, LIME);
+                DrawText("VOXEL TACTICS  (S5)", 24, 22, 22, LIME);
                 DrawText(TextFormat("Units: %i blue / %i red   Placement: %s",
                                     static_cast<int>(units.TeamCount(0)),
                                     static_cast<int>(units.TeamCount(1)),
                                     scriptOk ? "skirmish01.lua" : "default"),
                          24, 50, 17, scriptOk ? RAYWHITE : Color{240, 150, 90, 255});
-                if (sel != nullptr) {
-                    DrawText(TextFormat("Selected: blue unit  move %i  jump %i  range %i tiles",
+                if (walking) {
+                    DrawText("Moving...", 24, 72, 17, Color{255, 235, 120, 255});
+                } else if (sel != nullptr) {
+                    DrawText(TextFormat("Selected  move %i  jump %i  range %i   A to walk to cursor",
                                         sel->moveTiles, sel->jumpHeight,
                                         static_cast<int>(reach.Tiles().size())),
                              24, 72, 17, Color{140, 235, 170, 255});
                 } else {
-                    DrawText(TextFormat("Cursor: %i,%i   (click a blue unit to select)", cursorX,
+                    DrawText(TextFormat("Cursor %i,%i   A on a blue unit to select", cursorX,
                                         cursorZ),
                              24, 72, 17, LIGHTGRAY);
                 }
-                DrawText("D-pad/arrows/mouse cursor   A/LMB select   B/RMB cancel   Q/E rotate",
+                DrawText("D-pad/arrows cursor   A select/move   B cancel   Q/E rotate   R-stick pan",
                          24, 100, 15, GRAY);
 
                 EndDrawing();
