@@ -186,6 +186,7 @@ int RunBattle(int argc, char* argv[]) {
             int cursorZ = (gz0 + gz1) / 2;
             int selected = -1;  // unit slot index, -1 = none
             float stickRepeat = 0.0F;
+            int camRot = 0;  // 0..3, +1 per RotateRight -- picks the cursor axes
 
             struct Walk {
                 int unit = -1;
@@ -202,41 +203,39 @@ int RunBattle(int argc, char* argv[]) {
                 cursorX = std::clamp(cursorX + dx, gx0, gx1);
                 cursorZ = std::clamp(cursorZ + dz, gz0, gz1);
             };
-            // Moves the cursor toward a screen direction. At our 45-degree iso
-            // rotations the four world axes project to screen *diagonals*, so we
-            // search the 8 neighbours (the cursor may step diagonally -- it is a
-            // pointer, not a path) and pick the one whose screen projection best
-            // matches. Works at every camera rotation, immune to stick sign.
-            const auto stepForScreen = [&](const float sdx, const float sdy) {
-                const Camera3D cam = camera.Camera();
-                const Vector3 base = tileWorld(cursorX, cursorZ);
-                const Vector2 o = GetWorldToScreen(base, cam);
-                float best = 0.30F;  // require a real match, not a near-perpendicular one
-                int bx = 0;
-                int bz = 0;
-                for (int dz = -1; dz <= 1; ++dz) {
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        if (dx == 0 && dz == 0) {
-                            continue;
-                        }
-                        const Vector2 p = GetWorldToScreen(
-                            {base.x + static_cast<float>(dx), base.y, base.z + static_cast<float>(dz)},
-                            cam);
-                        const float vx = p.x - o.x;
-                        const float vy = p.y - o.y;
-                        const float len = std::sqrt(vx * vx + vy * vy);
-                        if (len < 1.0e-4F) {
-                            continue;
-                        }
-                        const float score = (vx / len) * sdx + (vy / len) * sdy;
-                        if (score > best) {
-                            best = score;
-                            bx = dx;
-                            bz = dz;
-                        }
+            // World tile step for each screen direction, per 90-degree camera
+            // rotation. Cardinal only -- the cursor never steps diagonally.
+            static constexpr int kUp[4][2] = {{0, -1}, {-1, 0}, {0, 1}, {1, 0}};
+            static constexpr int kRight[4][2] = {{1, 0}, {0, -1}, {-1, 0}, {0, 1}};
+            const auto cursorUp = [&](const int sign) {
+                moveCursor(kUp[camRot][0] * sign, kUp[camRot][1] * sign);
+            };
+            const auto cursorRight = [&](const int sign) {
+                moveCursor(kRight[camRot][0] * sign, kRight[camRot][1] * sign);
+            };
+
+            // Selects the next team-0 unit after `selected`, wrapping.
+            const auto selectNextFriendly = [&]() {
+                std::vector<int> friendly;
+                units.ForEach([&](UnitHandle h, const Unit& u) {
+                    if (u.team == 0) {
+                        friendly.push_back(h.index);
+                    }
+                });
+                if (friendly.empty()) {
+                    return;
+                }
+                std::size_t next = 0;
+                for (std::size_t i = 0; i < friendly.size(); ++i) {
+                    if (friendly[i] == selected) {
+                        next = (i + 1) % friendly.size();
                     }
                 }
-                moveCursor(bx, bz);
+                selected = friendly[next];
+                const Unit* u = units.AtIndex(selected);
+                cursorX = u->tileX;
+                cursorZ = u->tileZ;
+                camera.Follow(tileWorld(u->tileX, u->tileZ));
             };
 
             if (smokeWindow) {
@@ -272,25 +271,27 @@ int RunBattle(int argc, char* argv[]) {
                 constexpr float kStickYSign = 1.0F;
 #endif
 
-                // --- cursor: d-pad / arrows step it one tile in the matching
-                // screen direction; the left stick steps it on a repeat. Frozen
-                // while a unit walks. ---
-                if (!walking) {
+                const bool l1 = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
+
+                // --- cursor: d-pad / arrows / left stick step it one tile along
+                // the current screen axes (cardinal only). Frozen while walking
+                // and while L1 is held (L1 + A = next unit). ---
+                if (!walking && !l1) {
                     if (IsKeyPressed(KEY_UP) ||
                         IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
-                        stepForScreen(0.0F, -1.0F);
+                        cursorUp(1);
                     }
                     if (IsKeyPressed(KEY_DOWN) ||
                         IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) {
-                        stepForScreen(0.0F, 1.0F);
+                        cursorUp(-1);
                     }
                     if (IsKeyPressed(KEY_LEFT) ||
                         IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) {
-                        stepForScreen(-1.0F, 0.0F);
+                        cursorRight(-1);
                     }
                     if (IsKeyPressed(KEY_RIGHT) ||
                         IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) {
-                        stepForScreen(1.0F, 0.0F);
+                        cursorRight(1);
                     }
                     stickRepeat -= dt;
                     if (pad) {
@@ -300,9 +301,11 @@ int RunBattle(int argc, char* argv[]) {
                         if (std::abs(sx) < 0.4F && std::abs(sy) < 0.4F) {
                             stickRepeat = 0.0F;
                         } else if (stickRepeat <= 0.0F) {
-                            const bool horiz = std::abs(sx) >= std::abs(sy);
-                            stepForScreen(horiz ? (sx > 0.0F ? 1.0F : -1.0F) : 0.0F,
-                                          horiz ? 0.0F : (sy > 0.0F ? 1.0F : -1.0F));
+                            if (std::abs(sx) >= std::abs(sy)) {
+                                cursorRight(sx > 0.0F ? 1 : -1);
+                            } else {
+                                cursorUp(sy < 0.0F ? 1 : -1);  // stick up = -y
+                            }
                             stickRepeat = 0.15F;
                         }
                     }
@@ -316,16 +319,30 @@ int RunBattle(int argc, char* argv[]) {
                 if (IsKeyDown(KEY_D)) panR += 1.0F;
                 if (IsKeyDown(KEY_A)) panR -= 1.0F;
                 if (pad) {
-                    zoom += (IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1) ? 1.0F : 0.0F) -
-                            (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1) ? 1.0F : 0.0F);
-                    panR += GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
-                    panF -= GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * kStickYSign;
+                    const float rx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+                    const float ry = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y) * kStickYSign;
+                    // R1 held: right stick zooms; otherwise it pans.
+                    if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) {
+                        zoom += -ry * 6.0F * dt;
+                    } else {
+                        panR += rx;
+                        panF -= ry;
+                    }
                 }
                 if (IsKeyPressed(KEY_Q) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
                     camera.RotateLeft();
+                    camRot = (camRot + 3) % 4;
                 }
                 if (IsKeyPressed(KEY_E) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
                     camera.RotateRight();
+                    camRot = (camRot + 1) % 4;
+                }
+                // L1 + A cycles the selected unit; Tab does the same on PC.
+                if ((l1 && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) ||
+                    IsKeyPressed(KEY_TAB)) {
+                    if (!walking) {
+                        selectNextFriendly();
+                    }
                 }
                 camera.Zoom(zoom);
                 camera.Pan(std::clamp(panF, -1.0F, 1.0F), std::clamp(panR, -1.0F, 1.0F), dt);
@@ -372,9 +389,10 @@ int RunBattle(int argc, char* argv[]) {
                     }
                 }
 
-                // Confirm / cancel (LMB / A, RMB / B).
+                // Confirm / cancel (LMB / A, RMB / B). A while L1 is held is the
+                // next-unit shortcut, not a confirm.
                 const bool confirm = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
-                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
+                                     (!l1 && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
                 const bool cancel = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
                 if (!walking && cancel) {
@@ -508,7 +526,7 @@ int RunBattle(int argc, char* argv[]) {
                                         cursorZ),
                              24, 72, 17, LIGHTGRAY);
                 }
-                DrawText("D-pad/arrows cursor   A select/move   B cancel   Q/E rotate   R-stick pan",
+                DrawText("D-pad cursor   A select/move   B cancel   L1+A/Tab next unit   Q/E rotate",
                          24, 100, 15, GRAY);
 
                 EndDrawing();
