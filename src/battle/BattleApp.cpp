@@ -237,27 +237,47 @@ int RunBattle(int argc, char* argv[]) {
                 cursorZ = u->tileZ;
                 camera.Follow(tileWorld(u->tileX, u->tileZ));
             };
+            (void)selectNextFriendly;  // the turn manager picks the active unit
 
-            if (smokeWindow) {
-                // Auto-select a player unit and start a short walk so the
-                // screenshot catches a unit mid-move.
-                units.ForEach([&](UnitHandle h, const Unit& u) {
-                    if (selected < 0 && u.team == 0) {
-                        selected = h.index;
-                    }
-                });
-                const Unit* u = units.AtIndex(selected);
-                if (u != nullptr) {
-                    const auto p = ComputePath(grid, u->tileX, u->tileZ, u->tileX + 2,
-                                               u->tileZ + 2, u->jumpHeight);
-                    if (p.size() >= 2) {
-                        walk.unit = selected;
-                        walk.path = p;
-                        grid.At(u->tileX, u->tileZ).occupant = -1;
-                        unitRenderer.BeginWalk(selected);
+            // --- turn manager (order + hooks come from Lua) ---
+            enum class Phase { Begin, Menu, Move, Enemy, Over };
+            Phase phase = Phase::Begin;
+            const std::vector<int> order = scripting.InitiativeOrder();
+            std::size_t orderIdx = 0;
+            int active = -1;
+            int menuChoice = 0;  // 0 = Move, 1 = Wait
+            float phaseTimer = 0.0F;
+            std::string outcome;
+            bool acted = false;  // did the active unit already move this turn?
+
+            const auto beginNextTurn = [&]() {
+                for (std::size_t i = 0; i < order.size(); ++i) {
+                    active = order[orderIdx];
+                    orderIdx = (orderIdx + 1) % order.size();
+                    if (units.AtIndex(active) != nullptr) {
+                        break;
                     }
                 }
-            }
+                const Unit* u = units.AtIndex(active);
+                if (u == nullptr) {
+                    phase = Phase::Over;
+                    return;
+                }
+                scripting.OnTurnBegin(active);
+                selected = active;
+                cursorX = u->tileX;
+                cursorZ = u->tileZ;
+                camera.Follow(tileWorld(u->tileX, u->tileZ));
+                menuChoice = 0;
+                phaseTimer = 0.0F;
+                acted = false;
+                phase = (u->team == 0) ? Phase::Menu : Phase::Enemy;
+            };
+            const auto endTurn = [&]() {
+                selected = -1;
+                outcome = scripting.CheckVictory();
+                phase = outcome.empty() ? Phase::Begin : Phase::Over;
+            };
 
             int frames = 0;
             while (!WindowShouldClose()) {
@@ -273,10 +293,12 @@ int RunBattle(int argc, char* argv[]) {
 
                 const bool l1 = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1);
 
-                // --- cursor: d-pad / arrows / left stick step it one tile along
-                // the current screen axes (cardinal only). Frozen while walking
-                // and while L1 is held (L1 + A = next unit). ---
-                if (!walking && !l1) {
+                if (phase == Phase::Begin) {
+                    beginNextTurn();
+                }
+
+                // --- cursor: only while choosing a move target. ---
+                if (phase == Phase::Move && !walking && !l1) {
                     if (IsKeyPressed(KEY_UP) ||
                         IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
                         cursorUp(1);
@@ -337,13 +359,6 @@ int RunBattle(int argc, char* argv[]) {
                     camera.RotateRight();
                     camRot = (camRot + 1) % 4;
                 }
-                // L1 + A cycles the selected unit; Tab does the same on PC.
-                if ((l1 && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) ||
-                    IsKeyPressed(KEY_TAB)) {
-                    if (!walking) {
-                        selectNextFriendly();
-                    }
-                }
                 camera.Zoom(zoom);
                 camera.Pan(std::clamp(panF, -1.0F, 1.0F), std::clamp(panR, -1.0F, 1.0F), dt);
                 camera.Update(dt);
@@ -351,7 +366,8 @@ int RunBattle(int argc, char* argv[]) {
 
                 // Mouse cursor (PC): the topmost tile the ray crosses.
                 const Ray ray = GetScreenToWorldRay(GetMousePosition(), camera.Camera());
-                if (!smokeWindow && !pad && !walking && std::abs(ray.direction.y) > 1.0e-5F) {
+                if (phase == Phase::Move && !smokeWindow && !pad && !walking &&
+                    std::abs(ray.direction.y) > 1.0e-5F) {
                     float bestT = 1.0e9F;
                     for (int tz = grid.OriginZ(); tz < grid.OriginZ() + grid.SizeZ(); ++tz) {
                         for (int tx = grid.OriginX(); tx < grid.OriginX() + grid.SizeX(); ++tx) {
@@ -376,11 +392,11 @@ int RunBattle(int argc, char* argv[]) {
                     }
                 }
 
-                // Movement range of the selected unit, and a path preview.
+                // Movement range of the active unit (only while picking a move).
                 ReachableSet reach(gx0, gz0, grid.SizeX(), grid.SizeZ());
                 std::vector<PathStep> preview;
                 const Unit* sel = units.AtIndex(selected);
-                if (sel != nullptr && !walking) {
+                if (phase == Phase::Move && sel != nullptr && !walking) {
                     reach = ComputeReachable(grid, sel->tileX, sel->tileZ, sel->moveTiles,
                                              sel->jumpHeight);
                     if (reach.Contains(cursorX, cursorZ)) {
@@ -389,32 +405,48 @@ int RunBattle(int argc, char* argv[]) {
                     }
                 }
 
-                // Confirm / cancel (LMB / A, RMB / B). A while L1 is held is the
-                // next-unit shortcut, not a confirm.
-                const bool confirm = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
-                                     (!l1 && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
+                const bool confirm =
+                    IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN) ||
+                    IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
                 const bool cancel = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
-                                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
-                if (!walking && cancel) {
-                    selected = -1;
-                } else if (!walking && confirm) {
-                    const int occ = grid.At(cursorX, cursorZ).occupant;
-                    const Unit* onTile = units.AtIndex(occ);
-                    if (sel != nullptr && occ < 0 && reach.Contains(cursorX, cursorZ) &&
-                        !preview.empty()) {
-                        // Walk the selected unit to the target tile.
+                                    IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT) ||
+                                    IsKeyPressed(KEY_BACKSPACE);
+                const bool navUp = IsKeyPressed(KEY_UP) ||
+                                   IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP);
+                const bool navDown = IsKeyPressed(KEY_DOWN) ||
+                                     IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN);
+
+                if (phase == Phase::Menu) {
+                    if (navUp || navDown) {
+                        menuChoice ^= 1;
+                    }
+                    if (confirm) {
+                        if (menuChoice == 0) {
+                            phase = Phase::Move;
+                        } else {
+                            endTurn();  // Wait
+                        }
+                    }
+                } else if (phase == Phase::Move && !walking) {
+                    if (cancel) {
+                        phase = Phase::Menu;
+                    } else if (confirm && sel != nullptr && !preview.empty() &&
+                               grid.At(cursorX, cursorZ).occupant < 0) {
                         walk.unit = selected;
                         walk.path = preview;
                         walk.t = 0.0F;
                         grid.At(sel->tileX, sel->tileZ).occupant = -1;
                         unitRenderer.BeginWalk(walk.unit);
-                    } else if (onTile != nullptr && onTile->team == 0) {
-                        selected = (selected == occ) ? -1 : occ;
-                        if (selected >= 0) {
-                            camera.Follow(tileWorld(onTile->tileX, onTile->tileZ));
-                        }
-                    } else {
-                        selected = -1;
+                        acted = true;
+                    }
+                }
+
+                // Enemy turn: a brief pause, then wait (real AI is S9).
+                if (phase == Phase::Enemy && !walking) {
+                    phaseTimer += dt;
+                    if (phaseTimer > 0.7F) {
+                        endTurn();
                     }
                 }
 
@@ -436,7 +468,7 @@ int RunBattle(int argc, char* argv[]) {
                         }
                         unitRenderer.EndWalk();
                         walk.unit = -1;
-                        selected = -1;  // one action per unit for now
+                        endTurn();  // one action per unit for now
                     } else {
                         const float frac = walk.t - static_cast<float>(seg);
                         const PathStep a = walk.path[static_cast<std::size_t>(seg)];
@@ -507,27 +539,47 @@ int RunBattle(int argc, char* argv[]) {
 
                 EndMode3D();
 
-                DrawRectangle(12, 12, 396, 118, Fade(BLACK, 0.72F));
-                DrawText("VOXEL TACTICS  (S5)", 24, 22, 22, LIME);
-                DrawText(TextFormat("Units: %i blue / %i red   Placement: %s",
-                                    static_cast<int>(units.TeamCount(0)),
-                                    static_cast<int>(units.TeamCount(1)),
-                                    scriptOk ? "skirmish01.lua" : "default"),
-                         24, 50, 17, scriptOk ? RAYWHITE : Color{240, 150, 90, 255});
-                if (walking) {
-                    DrawText("Moving...", 24, 72, 17, Color{255, 235, 120, 255});
-                } else if (sel != nullptr) {
-                    DrawText(TextFormat("Selected  move %i  jump %i  range %i   A to walk to cursor",
-                                        sel->moveTiles, sel->jumpHeight,
-                                        static_cast<int>(reach.Tiles().size())),
-                             24, 72, 17, Color{140, 235, 170, 255});
-                } else {
-                    DrawText(TextFormat("Cursor %i,%i   A on a blue unit to select", cursorX,
-                                        cursorZ),
-                             24, 72, 17, LIGHTGRAY);
+                // --- turn banner + action menu ---
+                const int sw = GetScreenWidth();
+                const bool playerTurn = phase == Phase::Menu || phase == Phase::Move;
+                const char* banner = phase == Phase::Over ? (outcome == "player" ? "VICTORY"
+                                                             : outcome == "enemy" ? "DEFEAT"
+                                                                                  : "BATTLE OVER")
+                                     : playerTurn         ? "YOUR TURN"
+                                                          : "ENEMY TURN";
+                const Color bannerColor = phase == Phase::Over
+                                              ? (outcome == "player" ? Color{120, 240, 140, 255}
+                                                                     : Color{240, 120, 110, 255})
+                                          : playerTurn ? Color{120, 200, 255, 255}
+                                                       : Color{240, 160, 110, 255};
+                DrawRectangle(0, 0, sw, 34, Fade(BLACK, 0.6F));
+                DrawText(banner, sw / 2 - MeasureText(banner, 22) / 2, 6, 22, bannerColor);
+
+                if (phase == Phase::Menu) {
+                    const int mx = 24;
+                    const int my = GetScreenHeight() - 96;
+                    DrawRectangle(mx - 8, my - 8, 180, 78, Fade(BLACK, 0.78F));
+                    const char* items[2] = {"Move", "Wait"};
+                    for (int i = 0; i < 2; ++i) {
+                        const bool on = i == menuChoice;
+                        DrawText(on ? TextFormat("> %s", items[i]) : items[i], mx, my + i * 30,
+                                 22, on ? Color{255, 235, 120, 255} : LIGHTGRAY);
+                    }
                 }
-                DrawText("D-pad cursor   A select/move   B cancel   L1+A/Tab next unit   Q/E rotate",
-                         24, 100, 15, GRAY);
+
+                DrawRectangle(12, 44, 300, 66, Fade(BLACK, 0.7F));
+                DrawText(TextFormat("blue %i   red %i", static_cast<int>(units.TeamCount(0)),
+                                    static_cast<int>(units.TeamCount(1))),
+                         22, 52, 17, RAYWHITE);
+                if (const Unit* a = units.AtIndex(active)) {
+                    DrawText(TextFormat("Active: %s  HP %i/%i  move %i",
+                                        a->team == 0 ? "blue" : "red", a->hp, a->hpMax,
+                                        a->moveTiles),
+                             22, 74, 16, a->team == 0 ? Color{150, 200, 255, 255}
+                                                      : Color{255, 170, 140, 255});
+                }
+                DrawText("D-pad move  A confirm  B cancel  Q/E rotate  R-stick pan", 22, 94, 14,
+                         GRAY);
 
                 EndDrawing();
 
